@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en" manifest="/./release.manifest" data-framework="typescript">
+
+<head>
+    <meta charset="utf-8">
+    <title>sample simulator</title>
+    <link rel="stylesheet" type="text/css" href="/./semantic.css">
+    <link rel="stylesheet" type="text/css" href="/./sim.css">
+    <style>
+        body, html, .boardview, .esp32.page{
+            background: transparent;
+            height: 100%;
+            margin: 0;
+            min-width: unset;
+        }
+     .esp32.page{
+         display: none;
+     }
+     .esp32.active.page{
+         display: block;
+     }
+    </style>
+    <script src="/./bluebird.min.js"></script>
+    <script src="/./pxtsim.js"></script>
+    <script src="/./sim.js"></script>
+    <script src="/./jquery.js"></script>
+</head>
+
+<body>
+    <script type="text/javascript" src="/./semantic.js"></script>
+    <div class="esp32 boardview">
+        <div class="esp32 connect page ui info message">
+            <h1 class="ui header"> 设备未连接 </h1>
+            <p>
+                插入设备并点击连接来部署代码。
+            </p>
+            <button class="ui blue esp32 connect button" href="">连接</button>
+        </div>
+        <div class="esp32 status page ui positive message">
+            <h1 class="ui header"> 设备已连接 </h1>
+            <p>
+                点击部署以在设备上运行编辑区中的代码。
+            </p>
+            <button class="ui blue esp32 deploy button" href="">部署</button>
+        </div>
+        <div class="esp32 resetting page ui info message">
+            <h1 class="ui header"> 重置设备中 </h1>
+            <p>
+                尝试重置设备状态……
+            </p>
+        </div>
+        <div class="esp32 sending page ui info message">
+            <h1 class="ui header"> 发送代码中 </h1>
+            <p>
+                尝试发送代码……
+            </p>
+        </div>
+        <div class="esp32 saving page ui info message">
+            <h1 class="ui header"> 保存状态中 </h1>
+            <p>
+                尝试将代码保存到静态存储……
+            </p>
+        </div>
+    </div>
+</body>
