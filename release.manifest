@@ -3,31 +3,29 @@ CACHE MANIFEST
 CACHE:
 /./semantic.js
 /./main.js
+/./pxtapp.js
 /./typescript.js
 /./marked/marked.min.js
 /./highlight.js/highlight.pack.js
-/./lzma/lzma_worker-min.js
-/./fuse.min.js
 /./jquery.js
 /./pxtlib.js
 /./pxtcompiler.js
-/./pxtblocks.js
+/./pxtblockly.js
 /./pxtwinrt.js
 /./pxteditor.js
 /./pxtsim.js
+/./pxtembed.js
+/./pxtworker.js
+/./pxtweb.js
 /./blockly.css
 /./semantic.css
 /./rtlsemantic.css
-/./custom.css
-/./icons.css
 
 
 /./editor.js
 
+
 # blockly
-/./blockly/blockly_compressed.js
-/./blockly/blocks_compressed.js
-/./blockly/msg/js/en.js
 /./blockly/media/sprites.png
 /./blockly/media/click.mp3
 /./blockly/media/disconnect.wav
@@ -57,7 +55,10 @@ https://az416426.vo.msecnd.net/scripts/a/ai.0.js
 /./worker.js
 /./monacoworker.js
 
-# ver Tue May 29 2018 16:24:48 GMT+0800 (CST)
+# ver Wed Jun 13 2018 10:40:31 GMT+0800 (CST)
+
+# target
+/./docs/static/part-three.jpg
 
 /./target.js
   

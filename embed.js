@@ -4,10 +4,10 @@
     // This line gets patched up by the cloud
     var pxtConfig = {
     "relprefix": "/./",
+    "verprefix": "",
     "workerjs": "/./worker.js",
-    "tdworkerjs": "/./tdworker.js",
     "monacoworkerjs": "/./monacoworker.js",
-    "pxtVersion": "3.4.8",
+    "pxtVersion": "3.19.2",
     "pxtRelId": "",
     "pxtCdnUrl": "/./",
     "commitCdnUrl": "/./",
@@ -27,20 +27,10 @@
     var scripts = [
         "/./highlight.js/highlight.pack.js",
         "/./bluebird.min.js",
-        "/./typescript.js",
         "/./semantic.js",
         "/./marked/marked.min.js",
-        "/./lzma/lzma_worker-min.js",
-        "/./blockly/blockly_compressed.js",
-        "/./blockly/blocks_compressed.js",
-        "/./blockly/msg/js/en.js",
-        "/./pxtlib.js",
-        "/./pxtcompiler.js",
-        "/./pxtblocks.js",
-        "/./pxteditor.js",
-        "/./pxtsim.js",
         "/./target.js",
-        "/./pxtrunner.js"
+        "/./pxtembed.js"
     ]
 
     if (typeof jQuery == "undefined")

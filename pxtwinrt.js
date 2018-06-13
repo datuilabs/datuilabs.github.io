@@ -80,8 +80,7 @@ var pxt;
                     .then(function () { return _this.initAsync(); });
             };
             WindowsRuntimeIO.prototype.isSwitchingToBootloader = function () {
-                expectingAdd = true;
-                expectingRemove = true;
+                isSwitchingToBootloader();
             };
             WindowsRuntimeIO.prototype.disconnectAsync = function () {
                 if (this.dev) {
@@ -107,11 +106,18 @@ var pxt;
                     pxt.debug("hf2: " + value + " bytes written");
                 }));
             };
-            WindowsRuntimeIO.prototype.initAsync = function () {
+            WindowsRuntimeIO.prototype.initAsync = function (isRetry) {
                 var _this = this;
+                if (isRetry === void 0) { isRetry = false; }
                 pxt.Util.assert(!this.dev, "HID interface not properly reseted");
                 var wd = Windows.Devices;
                 var whid = wd.HumanInterfaceDevice.HidDevice;
+                var rejectDeviceNotFound = function () {
+                    var err = new Error(pxt.U.lf("Device not found"));
+                    err.notifyUser = true;
+                    err.type = "devicenotfound";
+                    return Promise.reject(err);
+                };
                 var getDevicesPromise = hidSelectors.reduce(function (soFar, currentSelector) {
                     // Try all selectors, in order, until some devices are found
                     return soFar.then(function (devices) {
@@ -121,6 +127,7 @@ var pxt;
                         return wd.Enumeration.DeviceInformation.findAllAsync(currentSelector, null);
                     });
                 }, Promise.resolve(null));
+                var deviceId;
                 return getDevicesPromise
                     .then(function (devices) {
                     if (!devices || !devices[0]) {
@@ -130,12 +137,15 @@ var pxt;
                     pxt.debug("hid enumerate " + devices.length + " devices");
                     var device = devices[0];
                     pxt.debug("hid connect to " + device.name + " (" + device.id + ")");
+                    deviceId = device.id;
                     return whid.fromIdAsync(device.id, Windows.Storage.FileAccessMode.readWrite);
                 })
                     .then(function (r) {
                     _this.dev = r;
                     if (!_this.dev) {
                         pxt.debug("can't connect to hid device");
+                        var status_1 = Windows.Devices.Enumeration.DeviceAccessInformation.createFromId(deviceId).currentStatus;
+                        pxt.reportError("winrt_device", "could not connect to HID device; device status: " + status_1);
                         return Promise.reject(new Error("can't connect to hid device"));
                     }
                     pxt.debug("hid device version " + _this.dev.version);
@@ -154,10 +164,16 @@ var pxt;
                     return Promise.resolve();
                 })
                     .catch(function (e) {
-                    var err = new Error(pxt.U.lf("Device not found"));
-                    err.notifyUser = true;
-                    err.type = "devicenotfound";
-                    return Promise.reject(err);
+                    if (isRetry) {
+                        return rejectDeviceNotFound();
+                    }
+                    return winrt.bootloaderViaBaud()
+                        .then(function () {
+                        return _this.initAsync(true);
+                    })
+                        .catch(function () {
+                        return rejectDeviceNotFound();
+                    });
                 });
             };
             return WindowsRuntimeIO;
@@ -175,6 +191,13 @@ var pxt;
                 .then(function () { return winrt.packetIO; });
         }
         winrt.mkPacketIOAsync = mkPacketIOAsync;
+        function isSwitchingToBootloader() {
+            expectingAdd = true;
+            if (winrt.packetIO && winrt.packetIO.dev) {
+                expectingRemove = true;
+            }
+        }
+        winrt.isSwitchingToBootloader = isSwitchingToBootloader;
         var hidSelectors = [];
         var watchers = [];
         var deviceCount = 0;
@@ -243,11 +266,10 @@ var pxt;
         var deviceNameFilter;
         var activePorts = {};
         function initSerial() {
-            var hasFilter = !!pxt.appTarget.serial.nameFilter ||
-                (pxt.appTarget.serial.vendorId && pxt.appTarget.serial.productId);
-            if (!pxt.appTarget.serial
-                || !pxt.appTarget.serial.log
-                || !hasFilter)
+            var hasDeviceFilter = !!pxt.appTarget.serial &&
+                (!!pxt.appTarget.serial.nameFilter || (!!pxt.appTarget.serial.vendorId && !!pxt.appTarget.serial.productId));
+            var canLogSerial = !!pxt.appTarget.serial && pxt.appTarget.serial.log;
+            if (!canLogSerial || !hasDeviceFilter)
                 return;
             var sd = Windows.Devices.SerialCommunication.SerialDevice;
             var serialDeviceSelector;
@@ -267,7 +289,7 @@ var pxt;
             watcher.start();
         }
         winrt.initSerial = initSerial;
-        function suspendSerial() {
+        function suspendSerialAsync() {
             if (watcher) {
                 watcher.stop();
                 watcher.removeEventListener("added", deviceAdded);
@@ -275,14 +297,120 @@ var pxt;
                 watcher.removeEventListener("updated", deviceUpdated);
                 watcher = undefined;
             }
+            var stoppedReadingOpsPromise = Promise.resolve();
             Object.keys(activePorts).forEach(function (deviceId) {
                 var port = activePorts[deviceId];
-                var device = port.device;
-                device.close();
+                var currentRead = port.readingOperation;
+                if (currentRead) {
+                    var deferred_1 = Promise.defer();
+                    port.cancellingDeferred = deferred_1;
+                    stoppedReadingOpsPromise = stoppedReadingOpsPromise.then(function () {
+                        return deferred_1.promise
+                            .timeout(500)
+                            .catch(function (e) {
+                            pxt.reportError("winrt_device", "could not cancel reading operation for a device: " + e.message);
+                        });
+                    });
+                    currentRead.cancel();
+                }
             });
-            activePorts = {};
+            return stoppedReadingOpsPromise
+                .then(function () {
+                Object.keys(activePorts).forEach(function (deviceId) {
+                    var port = activePorts[deviceId];
+                    if (port.device) {
+                        var device = port.device;
+                        device.close();
+                    }
+                });
+                activePorts = {};
+            });
         }
-        winrt.suspendSerial = suspendSerial;
+        winrt.suspendSerialAsync = suspendSerialAsync;
+        /**
+         * Most Arduino devices support switching into bootloader by opening the COM port at 1200 baudrate.
+         */
+        function bootloaderViaBaud() {
+            if (!pxt.appTarget || !pxt.appTarget.compile || !pxt.appTarget.compile.useUF2 ||
+                !pxt.appTarget.simulator || !pxt.appTarget.simulator.boardDefinition || !pxt.appTarget.simulator.boardDefinition.bootloaderBaudSwitchInfo) {
+                return Promise.reject(new Error("device does not support switching to bootloader via baudrate"));
+            }
+            var allSerialDevices;
+            var vidPidInfo = pxt.appTarget.simulator.boardDefinition.bootloaderBaudSwitchInfo;
+            var selector = {
+                vid: vidPidInfo.vid,
+                pid: vidPidInfo.pid,
+                usageId: undefined,
+                usagePage: undefined
+            };
+            return connectSerialDevicesAsync([selector])
+                .then(function (serialDevices) {
+                if (!serialDevices || serialDevices.length === 0) {
+                    // No device found, it really looks like no device is plugged in. Bail out.
+                    return Promise.reject(new Error("no serial devices to switch into bootloader"));
+                }
+                allSerialDevices = serialDevices;
+                if (allSerialDevices.length) {
+                    winrt.isSwitchingToBootloader();
+                }
+                allSerialDevices.forEach(function (dev) {
+                    dev.baudRate = 1200;
+                    dev.close();
+                });
+                // A long delay is needed before attempting to connect to the bootloader device, enough for the OS to
+                // recognize the device has been plugged in. Without drivers, connection to the device might still fail
+                // the first time, but drivers should be installed by the time the user clicks Download again, at which
+                // point flashing will work without the user ever needing to manually set the device to bootloader
+                return Promise.delay(1500);
+            });
+        }
+        winrt.bootloaderViaBaud = bootloaderViaBaud;
+        /**
+         * Connects to all matching serial devices without initializing the full PXT serial stack. Returns the list of
+         * devices that were successfully connected to, but doesn't do anything with these devices.
+         */
+        function connectSerialDevicesAsync(hidSelectors) {
+            if (!hidSelectors) {
+                return Promise.resolve([]);
+            }
+            var wd = Windows.Devices;
+            var sd = wd.SerialCommunication.SerialDevice;
+            var di = wd.Enumeration.DeviceInformation;
+            var serialDeviceSelectors = [];
+            hidSelectors.forEach(function (s) {
+                var sel = sd.getDeviceSelectorFromUsbVidPid(parseInt(s.vid), parseInt(s.pid));
+                serialDeviceSelectors.push(sel);
+            });
+            var allDevicesPromise = serialDeviceSelectors.reduce(function (promiseSoFar, sel) {
+                var deviceInfoSoFar;
+                return promiseSoFar
+                    .then(function (diSoFar) {
+                    deviceInfoSoFar = diSoFar;
+                    return di.findAllAsync(sel, null);
+                })
+                    .then(function (foundDevices) {
+                    if (deviceInfoSoFar) {
+                        for (var i = 0; i < foundDevices.length; ++i) {
+                            deviceInfoSoFar.push(foundDevices[i]);
+                        }
+                    }
+                    else {
+                        deviceInfoSoFar = foundDevices;
+                    }
+                    return Promise.resolve(deviceInfoSoFar);
+                });
+            }, Promise.resolve(null));
+            return allDevicesPromise
+                .then(function (allDeviceInfo) {
+                if (!allDeviceInfo) {
+                    return Promise.resolve([]);
+                }
+                return Promise.map(allDeviceInfo, function (devInfo) {
+                    return sd.fromIdAsync(devInfo.id);
+                });
+            });
+        }
+        winrt.connectSerialDevicesAsync = connectSerialDevicesAsync;
         function deviceAdded(deviceInfo) {
             if (deviceNameFilter && !deviceNameFilter.test(deviceInfo.name)) {
                 return;
@@ -306,30 +434,44 @@ var pxt;
                 port.info.update(deviceInfo);
             }
         }
+        var readingOpsCount = 0;
         function startDevice(id) {
             var port = activePorts[id];
             if (!port)
                 return;
             if (!port.device) {
-                var status_1 = Windows.Devices.Enumeration.DeviceAccessInformation.createFromId(id).currentStatus;
-                pxt.debug("device issue: " + status_1);
+                var status_2 = Windows.Devices.Enumeration.DeviceAccessInformation.createFromId(id).currentStatus;
+                pxt.reportError("winrt_device", "could not connect to serial device; device status: " + status_2);
                 return;
             }
+            var streams = Windows.Storage.Streams;
             port.device.baudRate = 115200;
             var stream = port.device.inputStream;
-            var reader = new Windows.Storage.Streams.DataReader(stream);
+            var reader = new streams.DataReader(stream);
+            reader.inputStreamOptions = streams.InputStreamOptions.partial;
             var serialBuffers = {};
             var readMore = function () {
                 // Make sure the device is still active
-                if (!activePorts[id]) {
+                if (!activePorts[id] || !!port.cancellingDeferred) {
                     return;
                 }
-                reader.loadAsync(32).done(function (bytesRead) {
-                    var msg = reader.readString(Math.floor(bytesRead / 4) * 4);
+                port.readingOperation = reader.loadAsync(32);
+                port.readingOperation.done(function (bytesRead) {
+                    var msg = reader.readString(Math.floor(reader.unconsumedBufferLength / 4) * 4);
                     pxt.Util.bufferSerial(serialBuffers, msg, id);
-                    readMore();
+                    setTimeout(function () { return readMore(); }, 1);
                 }, function (e) {
-                    setTimeout(function () { return startDevice(id); }, 1000);
+                    var status = port.readingOperation.operation.status;
+                    if (status === Windows.Foundation.AsyncStatus.canceled) {
+                        reader.detachStream();
+                        reader.close();
+                        if (port.cancellingDeferred) {
+                            setTimeout(function () { return port.cancellingDeferred.resolve(); }, 25);
+                        }
+                    }
+                    else {
+                        setTimeout(function () { return startDevice(id); }, 1000);
+                    }
                 });
             };
             setTimeout(function () { return readMore(); }, 100);
@@ -367,17 +509,17 @@ var pxt;
         }
         winrt.isWinRT = isWinRT;
         function initAsync(importHexImpl) {
-            if (!isWinRT())
+            if (!isWinRT() || pxt.BrowserUtils.isIFrame())
                 return Promise.resolve();
             var uiCore = Windows.UI.Core;
             var navMgr = uiCore.SystemNavigationManager.getForCurrentView();
             var app = Windows.UI.WebUI.WebUIApplication;
-            app.addEventListener("suspending", suspendingHandler, false);
-            app.addEventListener("resuming", resumingHandler, false);
+            app.addEventListener("suspending", suspendingHandler);
+            app.addEventListener("resuming", resumingHandler);
             navMgr.onbackrequested = function (e) {
                 // Ignore the built-in back button; it tries to back-navigate the sidedoc panel, but it crashes the
                 // app if the sidedoc has been closed since the navigation happened
-                console.log("BACK NAVIGATION");
+                pxt.log("BACK NAVIGATION");
                 navMgr.appViewBackButtonVisibility = uiCore.AppViewBackButtonVisibility.collapsed;
                 e.handled = true;
             };
@@ -386,8 +528,8 @@ var pxt;
                 .then(function () {
                 if (importHexImpl) {
                     importHex = importHexImpl;
-                    app.removeEventListener("activated", initialActivationHandler, false);
-                    app.addEventListener("activated", fileActivationHandler, false);
+                    app.removeEventListener("activated", initialActivationHandler);
+                    app.addEventListener("activated", fileActivationHandler);
                 }
             });
         }
@@ -420,22 +562,47 @@ var pxt;
             });
         }
         winrt.hasActivationProjectAsync = hasActivationProjectAsync;
+        function releaseAllDevicesAsync() {
+            if (!isWinRT()) {
+                return Promise.resolve();
+            }
+            return Promise.resolve()
+                .then(function () {
+                if (winrt.packetIO) {
+                    pxt.log("disconnecting packetIO");
+                    return winrt.packetIO.disconnectAsync();
+                }
+                return Promise.resolve();
+            })
+                .catch(function (e) {
+                e.message = "error disconnecting packetIO: " + e.message;
+                pxt.reportException(e);
+            })
+                .then(function () {
+                pxt.log("suspending serial");
+                return winrt.suspendSerialAsync();
+            })
+                .catch(function (e) {
+                e.message = "error suspending serial: " + e.message;
+                pxt.reportException(e);
+            });
+        }
+        winrt.releaseAllDevicesAsync = releaseAllDevicesAsync;
         function initialActivationHandler(args) {
             Windows.UI.WebUI.WebUIApplication.removeEventListener("activated", initialActivationHandler);
             initialActivationDeferred.resolve(args);
         }
         function suspendingHandler(args) {
-            console.log("suspending");
-            if (winrt.packetIO) {
-                console.log("disconnet pack io");
-                winrt.packetIO.disconnectAsync().done();
-            }
-            winrt.suspendSerial();
+            pxt.log("suspending");
+            var suspensionDeferral = args.suspendingOperation.getDeferral();
+            return releaseAllDevicesAsync()
+                .then(function () { return suspensionDeferral.complete(); }, function (e) { return suspensionDeferral.complete(); })
+                .done();
         }
         function resumingHandler(args) {
-            console.log("resuming");
+            pxt.log("resuming");
             if (winrt.packetIO) {
-                console.log("reconnet pack io");
+                pxt.log("reconnet pack io");
                 winrt.packetIO.reconnectAsync().done();
             }
             winrt.initSerial();
@@ -475,10 +642,10 @@ var pxt;
         var workspace;
         (function (workspace) {
             var U = pxt.Util;
-            var lf = U.lf;
             var folder;
             var allScripts = [];
             var currentTarget;
+            var currentTargetVersion;
             function lookup(id) {
                 return allScripts.filter(function (x) { return x.id == id; })[0];
             }
@@ -507,6 +674,7 @@ var pxt;
                 var modTime = Math.round(time[0] / 1000) || U.nowSeconds();
                 var hd = {
                     target: currentTarget,
+                    targetVersion: e.header ? e.header.targetVersion : currentTargetVersion,
                     name: pkg.config.name,
                     meta: {},
                     editor: pxt.JAVASCRIPT_PROJECT_NAME,
@@ -533,9 +701,10 @@ var pxt;
                     eh.icon = hd.icon;
                 }
             }
-            function initAsync(target) {
+            function initAsync(target, version) {
                 allScripts = [];
                 currentTarget = target;
+                currentTargetVersion = version;
                 var applicationData = Windows.Storage.ApplicationData.current;
                 var localFolder = applicationData.localFolder;
                 pxt.debug("winrt: initializing workspace");
@@ -630,7 +799,6 @@ var pxt;
                 h.id = path;
                 h.recentUse = U.nowSeconds();
                 h.modificationTime = h.recentUse;
-                h.target = currentTarget;
                 var e = {
                     id: h.id,
                     header: h,
@@ -758,6 +926,9 @@ var pxt;
                     pxt.storage.clearLocal();
                 }));
             }
+            function loadedAsync() {
+                return Promise.resolve();
+            }
             workspace.provider = {
                 getHeaders: getHeaders,
                 getHeader: getHeader,
@@ -767,7 +938,8 @@ var pxt;
                 installAsync: installAsync,
                 saveToCloudAsync: saveToCloudAsync,
                 syncAsync: syncAsync,
-                resetAsync: resetAsync
+                resetAsync: resetAsync,
+                loadedAsync: loadedAsync
             };
         })(workspace = winrt.workspace || (winrt.workspace = {}));
     })(winrt = pxt.winrt || (pxt.winrt = {}));

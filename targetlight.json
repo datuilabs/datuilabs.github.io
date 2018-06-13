@@ -21,7 +21,13 @@
   },
   "compile": {
     "saveAsPNG": true,
-    "floatingPoint": true
+    "floatingPoint": true,
+    "vtableShift": 2,
+    "noSourceInFlash": true
+  },
+  "versions": {
+    "target": "2.0.1",
+    "pxt": "3.19.2"
   },
   "blocksprj": {
     "id": "blocksprj",
@@ -60,9 +66,5 @@
       "README.md": " ",
       "main.ts": " "
     }
-  },
-  "versions": {
-    "target": "2.0.1",
-    "pxt": "3.4.8"
   }
 }

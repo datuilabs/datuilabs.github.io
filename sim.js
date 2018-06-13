@@ -186,6 +186,8 @@ var pxsim;
         var sendingPage = $('.esp32.sending.page');
         var savingPage = $('.esp32.saving.page');
         var pages = [connectPage, statusPage, resettingPage, sendingPage, savingPage];
+        var term = $('#esp32-terminal');
+        var termbtn = $('i.terminal.icon');
         function updateView(stage) {
             pages.forEach(function (one) { return one.removeClass('active'); });
             pages[stage].addClass('active');
@@ -244,6 +246,17 @@ var pxsim;
                 }
             });
         }); };
+        // termbtn.on('click', e=> {
+        //     const ti = new Terminal();
+        //     ti.open(term[0]);
+        //     ti.write('blah, hello');
+        //     const modal = term[0].parentElement;
+        //     modal.remove();
+        //     parent.document.body.appendChild(modal);
+        //     const p$ = (parent.window as any).$;
+        //     p$(modal).modal('show');
+        //     console.log(modal);
+        // });
     }
     pxsim.setupBoardView = setupBoardView;
 })(pxsim || (pxsim = {}));

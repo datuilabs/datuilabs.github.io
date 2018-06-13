@@ -160,6 +160,7 @@ var pxt;
         runner.DebugRunner = DebugRunner;
     })(runner = pxt.runner || (pxt.runner = {}));
 })(pxt || (pxt = {}));
+/* tslint:disable:no-jquery-raw-elements TODO(tslint): get rid of jquery html() calls */
 var pxt;
 (function (pxt) {
     var runner;
@@ -180,7 +181,7 @@ var pxt;
             var images = cdn + "images";
             var $h = $('<div class="ui bottom attached tabular icon small compact menu hideprint">'
                 + ' <div class="right icon menu"></div></div>');
-            var $c = $('<div class="ui top attached segment"></div>');
+            var $c = $('<div class="ui top attached segment nobreak"></div>');
             var $menu = $h.find('.right.menu');
             var theme = pxt.appTarget.appTheme || {};
             if (woptions.showEdit && !theme.hideDocsEdit) {
@@ -340,9 +341,12 @@ var pxt;
                     return;
                 var file = r.compileJS.ast.getSourceFile("main.ts");
                 var info = decompileCallInfo(file.statements[0]);
-                if (!info)
+                if (!info || !r.apiInfo)
                     return;
-                var block = Blockly.Blocks[info.attrs.blockId];
+                var symbolInfo = r.apiInfo.byQName[info.qName];
+                if (!symbolInfo)
+                    return;
+                var block = Blockly.Blocks[symbolInfo.attributes.blockId];
                 var xml = block && block.codeCard ? block.codeCard.blocksXml : undefined;
                 var s = xml ? $(pxt.blocks.render(xml)) : r.compileBlocks && r.compileBlocks.success ? $(r.blocksSvg) : undefined;
                 var sig = info.decl.getText().replace(/^export/, '');
@@ -362,6 +366,37 @@ var pxt;
                 c.replaceWith(segment);
             }, { package: options.package, snippetMode: true, aspectRatio: options.blocksAspectRatio });
         }
+        function renderBlocksXmlAsync(opts) {
+            if (!opts.blocksXmlClass)
+                return Promise.resolve();
+            var cls = opts.blocksXmlClass;
+            function renderNextXmlAsync(cls, render, options) {
+                var $el = $("." + cls).first();
+                if (!$el[0])
+                    return Promise.resolve();
+                if (!options.emPixels)
+                    options.emPixels = 14;
+                return pxt.runner.compileBlocksAsync($el.text(), options)
+                    .then(function (r) {
+                    try {
+                        render($el, r);
+                    }
+                    catch (e) {
+                        console.error('error while rendering ' + $el.html());
+                        $el.append($('<div/>').addClass("ui segment warning").text(e.message));
+                    }
+                    $el.removeClass(cls);
+                    return Promise.delay(1, renderNextXmlAsync(cls, render, options));
+                });
+            }
+            return renderNextXmlAsync(cls, function (c, r) {
+                var s = r.blocksSvg;
+                if (opts.snippetReplaceParent)
+                    c = c.parent();
+                var segment = $('<div class="ui segment"/>').append(s);
+                c.replaceWith(segment);
+            }, { package: opts.package, snippetMode: true, aspectRatio: opts.blocksAspectRatio });
+        }
         function renderNamespaces(options) {
             if (pxt.appTarget.id == "core")
                 return Promise.resolve();
@@ -380,14 +415,14 @@ var pxt;
                 var nsStyleBuffer = '';
                 Object.keys(res).forEach(function (ns) {
                     var color = res[ns] || '#dddddd';
-                    nsStyleBuffer += "\n                        span.docs." + ns.toLowerCase() + " {\n                            background-color: " + color + " !important;\n                            border-color: " + Blockly.PXTUtils.fadeColour(color, 0.2, true) + " !important;\n                        }\n                    ";
+                    nsStyleBuffer += "\n                        span.docs." + ns.toLowerCase() + " {\n                            background-color: " + color + " !important;\n                            border-color: " + pxt.toolbox.fadeColor(color, 0.2, true) + " !important;\n                        }\n                    ";
                 });
                 return nsStyleBuffer;
             })
                 .then(function (nsStyleBuffer) {
-                Object.keys(pxt.blocks.blockColors).forEach(function (ns) {
-                    var color = pxt.blocks.blockColors[ns];
-                    nsStyleBuffer += "\n                        span.docs." + ns.toLowerCase() + " {\n                            background-color: " + color + " !important;\n                            border-color: " + Blockly.PXTUtils.fadeColour(color, 0.2, true) + " !important;\n                        }\n                    ";
+                Object.keys(pxt.toolbox.blockColors).forEach(function (ns) {
+                    var color = pxt.toolbox.blockColors[ns];
+                    nsStyleBuffer += "\n                        span.docs." + ns.toLowerCase() + " {\n                            background-color: " + color + " !important;\n                            border-color: " + pxt.toolbox.fadeColor(color, 0.2, true) + " !important;\n                        }\n                    ";
                 });
                 return nsStyleBuffer;
             })
@@ -432,8 +467,12 @@ var pxt;
                         var file = r.compileJS.ast.getSourceFile("main.ts");
                         var stmt = file.statements[0];
                         var info = decompileCallInfo(stmt);
-                        if (info && info.attrs.help)
-                            $newel = $("<a class=\"ui link\"/>").attr("href", "/reference/" + info.attrs.help).append($newel);
+                        if (info && r.apiInfo) {
+                            var symbolInfo = r.apiInfo.byQName[info.qName];
+                            if (symbolInfo && symbolInfo.attributes.help) {
+                                $newel = $("<a class=\"ui link\"/>").attr("href", "/reference/" + symbolInfo.attributes.help).append($newel);
+                            }
+                        }
                         $el.replaceWith($newel);
                     }
                     return Promise.delay(1, renderNextAsync());
@@ -480,12 +519,18 @@ var pxt;
                 var addItem = function (card) {
                     if (!card)
                         return;
+                    var mC = /^\/(v\d+)/.exec(card.url);
+                    var mP = /^\/(v\d+)/.exec(window.location.pathname);
+                    var inEditor = /#doc/i.test(window.location.href);
+                    if (card.url && !mC && mP && !inEditor)
+                        card.url = "/" + mP[1] + "/" + card.url;
                     ul.append(pxt.docs.codeCard.render(card, { hideHeader: true, shortName: true }));
                 };
                 stmts.forEach(function (stmt) {
                     var info = decompileCallInfo(stmt);
-                    if (info) {
-                        var block = Blockly.Blocks[info.attrs.blockId];
+                    if (info && r.apiInfo && r.apiInfo.byQName[info.qName]) {
+                        var attributes = r.apiInfo.byQName[info.qName].attributes;
+                        var block = Blockly.Blocks[attributes.blockId];
                         if (ns) {
                             var ii = r.compileBlocks.blocksInfo.apis.byQName[info.qName];
                             var nsi = r.compileBlocks.blocksInfo.apis.byQName[ii.namespace];
@@ -495,8 +540,8 @@ var pxt;
                                 description: nsi.attributes.jsDoc,
                                 blocksXml: block && block.codeCard
                                     ? block.codeCard.blocksXml
-                                    : info.attrs.blockId
-                                        ? "<xml xmlns=\"http://www.w3.org/1999/xhtml\"><block type=\"" + info.attrs.blockId + "\"></block></xml>"
+                                    : attributes.blockId
+                                        ? "<xml xmlns=\"http://www.w3.org/1999/xhtml\"><block type=\"" + attributes.blockId + "\"></block></xml>"
                                         : undefined
                             });
                         }
@@ -510,8 +555,8 @@ var pxt;
                             // no block available here
                             addItem({
                                 name: info.qName,
-                                description: info.attrs.jsDoc,
-                                url: info.attrs.help || undefined
+                                description: attributes.jsDoc,
+                                url: attributes.help || undefined
                             });
                         }
                     }
@@ -612,7 +657,42 @@ var pxt;
                 var cd_1 = document.createElement("div");
                 cd_1.className = "ui cards";
                 cd_1.setAttribute("role", "listbox");
-                cards.forEach(function (card) { return cd_1.appendChild(pxt.docs.codeCard.render(card, options)); });
+                cards.forEach(function (card) {
+                    // patch card url with version if necessary, we don't do this in the editor because that goes through the backend and passes the targetVersion then
+                    var mC = /^\/(v\d+)/.exec(card.url);
+                    var mP = /^\/(v\d+)/.exec(window.location.pathname);
+                    var inEditor = /#doc/i.test(window.location.href);
+                    if (card.url && !mC && mP && !inEditor)
+                        card.url = "/" + mP[1] + card.url;
+                    var cardEl = pxt.docs.codeCard.render(card, options);
+                    cd_1.appendChild(cardEl);
+                    // automitcally display package icon for approved packages
+                    if (card.cardType == "package") {
+                        var repoId_1 = pxt.github.parseRepoId((card.url || "").replace(/^\/pkg\//, ''));
+                        if (repoId_1) {
+                            pxt.packagesConfigAsync()
+                                .then(function (pkgConfig) {
+                                var status = pxt.github.repoStatus(repoId_1, pkgConfig);
+                                switch (status) {
+                                    case pxt.github.GitRepoStatus.Banned:
+                                        cardEl.remove();
+                                        break;
+                                    case pxt.github.GitRepoStatus.Approved:
+                                        // update card info
+                                        card.imageUrl = pxt.github.mkRepoIconUrl(repoId_1);
+                                        // inject
+                                        cd_1.insertBefore(pxt.docs.codeCard.render(card, options), cardEl);
+                                        cardEl.remove();
+                                        break;
+                                }
+                            })
+                                .catch(function (e) {
+                                // swallow
+                                pxt.debug("failed to load repo " + card.url);
+                            });
+                        }
+                    }
+                });
                 c.replaceWith(cd_1);
             }
             return Promise.resolve();
@@ -665,19 +745,24 @@ var pxt;
                 showEdit: !!options.showEdit,
                 run: !!options.simulator
             };
-            function render(e) {
+            function render(e, ignored) {
                 if (typeof hljs !== "undefined") {
                     $(e).text($(e).text().replace(/^\s*\r?\n/, ''));
                     hljs.highlightBlock(e);
                 }
-                fillWithWidget(options, $(e).parent(), $(e), undefined, undefined, woptions);
+                var opts = pxt.U.clone(woptions);
+                if (ignored) {
+                    opts.run = false;
+                    opts.showEdit = false;
+                }
+                fillWithWidget(options, $(e).parent(), $(e), undefined, undefined, opts);
             }
             $('code.lang-typescript').each(function (i, e) {
-                render(e);
+                render(e, false);
                 $(e).removeClass('lang-typescript');
             });
             $('code.lang-typescript-ignore').each(function (i, e) {
-                render(e);
+                render(e, true);
                 $(e).removeClass('lang-typescript-ignore');
             });
         }
@@ -686,7 +771,8 @@ var pxt;
                 options = {};
             if (options.pxtUrl)
                 options.pxtUrl = options.pxtUrl.replace(/\/$/, '');
-            options.showEdit = !pxt.BrowserUtils.isIFrame();
+            if (options.showEdit)
+                options.showEdit = !pxt.BrowserUtils.isIFrame();
             mergeConfig(options);
             if (options.simulatorClass) {
                 // simulators
@@ -712,11 +798,13 @@ var pxt;
                 .then(function () { return renderNextCodeCardAsync(options.codeCardClass, options); })
                 .then(function () { return renderSnippetsAsync(options); })
                 .then(function () { return renderBlocksAsync(options); })
+                .then(function () { return renderBlocksXmlAsync(options); })
                 .then(function () { return renderProjectAsync(options); });
         }
         runner.renderAsync = renderAsync;
     })(runner = pxt.runner || (pxt.runner = {}));
 })(pxt || (pxt = {}));
+/* tslint:disable:no-inner-html TODO(tslint): get rid of jquery html() calls */
 /// <reference path="../built/pxtlib.d.ts" />
 /// <reference path="../built/pxteditor.d.ts" />
 /// <reference path="../built/pxtcompiler.d.ts" />
@@ -844,13 +932,14 @@ var pxt;
             pxt.setAppTarget(window.pxtTargetBundle);
             pxt.Util.assert(!!pxt.appTarget);
             var cookieValue = /PXT_LANG=(.*?)(?:;|$)/.exec(document.cookie);
-            var mlang = /(live)?lang=([a-z]{2,}(-[A-Z]+)?)/i.exec(window.location.href);
-            var lang = mlang ? mlang[2] : (cookieValue && cookieValue[1] || pxt.appTarget.appTheme.defaultLocale || navigator.userLanguage || navigator.language);
+            var mlang = /(live)?(force)?lang=([a-z]{2,}(-[A-Z]+)?)/i.exec(window.location.href);
+            var lang = mlang ? mlang[3] : (cookieValue && cookieValue[1] || pxt.appTarget.appTheme.defaultLocale || navigator.userLanguage || navigator.language);
             var live = !pxt.appTarget.appTheme.disableLiveTranslations || (mlang && !!mlang[1]);
+            var force = !!mlang && !!mlang[2];
             var versions = pxt.appTarget.versions;
             patchSemantic();
             var cfg = pxt.webConfig;
-            return pxt.Util.updateLocalizationAsync(pxt.appTarget.id, true, cfg.commitCdnUrl, lang, versions ? versions.pxtCrowdinBranch : "", versions ? versions.targetCrowdinBranch : "", live)
+            return pxt.Util.updateLocalizationAsync(pxt.appTarget.id, true, cfg.commitCdnUrl, lang, versions ? versions.pxtCrowdinBranch : "", versions ? versions.targetCrowdinBranch : "", live, force)
                 .then(function () {
                 runner.mainPkg = new pxt.MainPackage(new Host());
             });
@@ -962,7 +1051,9 @@ var pxt;
                         parts: parts,
                         fnArgs: fnArgs,
                         cdnUrl: pxt.webConfig.commitCdnUrl,
-                        localizedStrings: pxt.Util.getLocalizedStrings()
+                        localizedStrings: pxt.Util.getLocalizedStrings(),
+                        highContrast: simOptions.highContrast,
+                        light: simOptions.light
                     };
                     if (pxt.appTarget.simulator)
                         runOptions.aspectRatio = parts.length && pxt.appTarget.simulator.partsAspectRatio
@@ -1001,11 +1092,12 @@ var pxt;
                     setEditorContextAsync(/\.ts$/i.test(name_1) ? LanguageMode.TypeScript : LanguageMode.Blocks, fm.locale).done();
                     break;
                 case "popout":
-                    var mp = /#(doc|md):([^&?:]+)/i.exec(window.location.href);
+                    var mp = /((\/v[0-9+])\/)?[^\/]*#(doc|md):([^&?:]+)/i.exec(window.location.href);
                     if (mp) {
                         var docsUrl = pxt.webConfig.docsUrl || '/--docs';
-                        var url = mp[1] == "doc" ? "" + mp[2] : docsUrl + "?md=" + mp[2];
-                        window.open(url, "_blank");
+                        var verPrefix = mp[2] || '';
+                        var url = mp[3] == "doc" ? "" + mp[4] : docsUrl + "?md=" + mp[4];
+                        window.open(verPrefix + url, "_blank");
                         // notify parent iframe that we have completed the popout
                         if (window.parent)
                             window.parent.postMessage({
@@ -1025,10 +1117,12 @@ var pxt;
         }
         function initEditorExtensionsAsync() {
             var promise = Promise.resolve();
-            if (pxt.appTarget.appTheme && pxt.appTarget.appTheme.extendEditor) {
+            if (pxt.appTarget.appTheme && pxt.appTarget.appTheme.extendFieldEditors) {
                 var opts_1 = {};
-                promise = promise.then(function () { return pxt.BrowserUtils.loadScriptAsync(pxt.webConfig.commitCdnUrl + "editor.js"); })
-                    .then(function () { return pxt.editor.initExtensionsAsync(opts_1); })
+                promise = promise
+                    .then(function () { return pxt.BrowserUtils.loadBlocklyAsync(); })
+                    .then(function () { return pxt.BrowserUtils.loadScriptAsync("fieldeditors.js"); })
+                    .then(function () { return pxt.editor.initFieldExtensionsAsync(opts_1); })
                     .then(function (res) {
                     if (res.fieldEditors)
                         res.fieldEditors.forEach(function (fi) {
@@ -1049,7 +1143,8 @@ var pxt;
                 if (!msg)
                     return; // no more work
                 pxt.tickEvent("renderer.job");
-                jobPromise = runner.decompileToBlocksAsync(msg.code, msg.options)
+                jobPromise = pxt.BrowserUtils.loadBlocklyAsync()
+                    .then(function () { return runner.decompileToBlocksAsync(msg.code, msg.options); })
                     .then(function (result) { return result.blocksSvg ? pxt.blocks.layout.blocklyToSvgAsync(result.blocksSvg, 0, 0, result.blocksSvg.viewBox.baseVal.width, result.blocksSvg.viewBox.baseVal.height) : undefined; })
                     .then(function (res) {
                     window.parent.postMessage({
@@ -1092,13 +1187,19 @@ var pxt;
                 Promise.delay(100) // allow UI to update
                     .then(function () {
                     switch (doctype) {
+                        case "print":
+                            var data = window.localStorage["printjob"];
+                            delete window.localStorage["printjob"];
+                            return renderProjectFilesAsync(content, JSON.parse(data))
+                                .then(function () { return pxsim.print(1000); });
+                        case "project":
+                            return renderProjectFilesAsync(content, JSON.parse(src))
+                                .then(function () { return pxsim.print(1000); });
+                        case "projectid":
+                            return renderProjectAsync(content, JSON.parse(src))
+                                .then(function () { return pxsim.print(1000); });
                         case "doc":
                             return renderDocAsync(content, src);
-                        case "tutorial":
-                            var body = $('body');
-                            body.addClass('tutorial');
-                            $(loading).hide();
-                            return renderTutorialAsync(content, src);
                         case "book":
                             return renderBookAsync(content, src);
                         default:
@@ -1124,7 +1225,7 @@ var pxt;
                     .done(function () { });
             }
             function renderHash() {
-                var m = /^#(doc|md|tutorial|book):([^&?:]+)(:([^&?:]+):([^&?:]+))?/i.exec(window.location.hash);
+                var m = /^#(doc|md|tutorial|book|project|projectid|print):([^&?:]+)(:([^&?:]+):([^&?:]+))?/i.exec(window.location.hash);
                 if (m) {
                     // navigation occured
                     var p = m[4] ? setEditorContextAsync(/^blocks$/.test(m[4]) ? LanguageMode.Blocks : LanguageMode.TypeScript, m[5]) : Promise.resolve();
@@ -1147,12 +1248,43 @@ var pxt;
             if (template === void 0) { template = "blocks"; }
             return pxt.Cloud.privateGetTextAsync(projectid + "/text")
                 .then(function (txt) { return JSON.parse(txt); })
-                .then(function (files) {
-                var md = "```" + template + "\n" + files["main.ts"] + "\n```";
-                return renderMarkdownAsync(content, md);
-            });
+                .then(function (files) { return renderProjectFilesAsync(content, files, projectid, template); });
         }
         runner.renderProjectAsync = renderProjectAsync;
+        function renderProjectFilesAsync(content, files, projectid, template) {
+            if (projectid === void 0) { projectid = null; }
+            if (template === void 0) { template = "blocks"; }
+            var cfg = (JSON.parse(files[pxt.CONFIG_NAME]) || {});
+            var md = "# " + cfg.name + " " + (cfg.version ? cfg.version : '') + "\n\n";
+            if (projectid)
+                md += "* " + (pxt.appTarget.appTheme.shareUrl || "https://makecode.com/") + projectid + "\n\n";
+            else
+                md += "* " + pxt.appTarget.appTheme.homeUrl + "\n\n";
+            var readme = "README.md";
+            if (files[readme])
+                md += files[readme].replace(/^#+/, "$0#") + '\n'; // bump all headers down 1
+            cfg.files.filter(function (f) { return f != pxt.CONFIG_NAME && f != readme; })
+                .forEach(function (f) {
+                md += "\n## " + f + "\n";
+                if (/\.ts$/.test(f)) {
+                    md += "```typescript\n" + files[f] + "\n```\n";
+                }
+                else if (/\.blocks?$/.test(f)) {
+                    md += "```blocksxml\n" + files[f] + "\n```\n";
+                }
+                else {
+                    md += "```" + f.substr(f.indexOf('.')) + "\n" + files[f] + "\n```\n";
+                }
+            });
+            if (cfg && cfg.dependencies) {
+                md += "\n## Packages\n\n" + Object.keys(cfg.dependencies).map(function (k) { return "* " + k + ", " + cfg.dependencies[k]; }).join('\n') + "\n\n```package\n" + Object.keys(cfg.dependencies).map(function (k) { return k + "=" + cfg.dependencies[k]; }).join('\n') + "\n```\n";
+            }
+            var options = {
+                print: true
+            };
+            return renderMarkdownAsync(content, md, options);
+        }
+        runner.renderProjectFilesAsync = renderProjectFilesAsync;
         function renderDocAsync(content, docid) {
             docid = docid.replace(/^\//, "");
             return pxt.Cloud.downloadMarkdownAsync(docid, runner.editorLocale, pxt.Util.localizeLive)
@@ -1162,8 +1294,13 @@ var pxt;
             summaryid = summaryid.replace(/^\//, "");
             pxt.tickEvent('book', { id: summaryid });
             pxt.log("rendering book from " + summaryid);
+            // display loader
+            var $loader = $("#loading").find(".loader");
+            $loader.addClass("text").text(lf("Compiling your book (this may take a minute)"));
+            // start the work
             var toc;
-            return pxt.Cloud.downloadMarkdownAsync(summaryid, runner.editorLocale, pxt.Util.localizeLive)
+            return Promise.delay(100)
+                .then(function () { return pxt.Cloud.downloadMarkdownAsync(summaryid, runner.editorLocale, pxt.Util.localizeLive); })
                 .then(function (summary) {
                 toc = pxt.docs.buildTOC(summary);
                 pxt.log("TOC: " + JSON.stringify(toc, null, 2));
@@ -1203,11 +1340,12 @@ var pxt;
                 || window.innerHeight < window.innerWidth ? 1.62 : 1 / 1.62;
             $(content).html(html);
             $(content).find('a').attr('target', '_blank');
-            return pxt.runner.renderAsync({
+            var renderOptions = {
                 blocksAspectRatio: blocksAspectRatio,
                 snippetClass: 'lang-blocks',
                 signatureClass: 'lang-sig',
                 blocksClass: 'lang-block',
+                blocksXmlClass: 'lang-blocksxml',
                 simulatorClass: 'lang-sim',
                 linksClass: 'lang-cards',
                 namespacesClass: 'lang-namespaces',
@@ -1220,7 +1358,12 @@ var pxt;
                 tutorial: !!options.tutorial,
                 showJavaScript: runner.languageMode == LanguageMode.TypeScript,
                 hexName: pxt.appTarget.id
-            }).then(function () {
+            };
+            if (options.print) {
+                renderOptions.showEdit = false;
+                renderOptions.simulator = false;
+            }
+            return pxt.runner.renderAsync(renderOptions).then(function () {
                 // patch a elements
                 $(content).find('a[href^="/"]').removeAttr('target').each(function (i, a) {
                     $(a).attr('href', '#doc:' + $(a).attr('href').replace(/^\//, ''));
@@ -1230,110 +1373,6 @@ var pxt;
             });
         }
         runner.renderMarkdownAsync = renderMarkdownAsync;
-        function renderTutorialAsync(content, tutorialid) {
-            tutorialid = tutorialid.replace(/^\//, "");
-            var initPromise = Promise.resolve();
-            if (pxt.Cloud.isLocalHost()) {
-                initPromise = waitForLocalTokenAsync();
-            }
-            return initPromise.then(function () { return pxt.Cloud.downloadMarkdownAsync(tutorialid, runner.editorLocale, pxt.Util.localizeLive); })
-                .then(function (tutorialmd) {
-                var steps = tutorialmd.split(/^##[^#].*$/gmi);
-                var newAuthoring = true;
-                if (steps.length <= 1) {
-                    // try again, using old logic.
-                    steps = tutorialmd.split(/^###[^#].*$/gmi);
-                    newAuthoring = false;
-                }
-                if (steps[0].indexOf("# Not found") == 0) {
-                    pxt.log("Tutorial not found: " + tutorialid);
-                    throw new Error("Tutorial not found: " + tutorialid);
-                }
-                var stepInfo = [];
-                tutorialmd.replace(newAuthoring ? /^##[^#](.*)$/gmi : /^###[^#](.*)$/gmi, function (f, s) {
-                    var info = {
-                        fullscreen: /@(fullscreen|unplugged)/.test(s),
-                        unplugged: /@unplugged/.test(s)
-                    };
-                    stepInfo.push(info);
-                    return "";
-                });
-                if (steps.length < 1)
-                    return Promise.resolve();
-                var options = steps[0];
-                steps = steps.slice(1, steps.length); // Remove tutorial title
-                // Extract toolbox block ids
-                var toolboxSubset = {};
-                return Promise.resolve()
-                    .then(function () { return renderMarkdownAsync(content, tutorialmd, { tutorial: true }); })
-                    .then(function () {
-                    var uptoSteps = steps.join();
-                    uptoSteps = uptoSteps.replace(/((?!.)\s)+/g, "\n");
-                    var regex = /```(sim|block|blocks|filterblocks)\s*\n([\s\S]*?)\n```/gmi;
-                    var match;
-                    var code = '';
-                    while ((match = regex.exec(uptoSteps)) != null) {
-                        code += match[2] + "\n";
-                    }
-                    if (code != '') {
-                        return pxt.runner.decompileToBlocksAsync(code, {
-                            emPixels: 14,
-                            layout: pxt.blocks.BlockLayout.Flow,
-                            useViewWidth: true,
-                            package: undefined
-                        }).then(function (r) {
-                            var blocksxml = r.compileBlocks.outfiles['main.blocks'];
-                            if (blocksxml) {
-                                var headless = pxt.blocks.loadWorkspaceXml(blocksxml);
-                                var allblocks = headless.getAllBlocks();
-                                for (var bi = 0; bi < allblocks.length; ++bi) {
-                                    var blk = allblocks[bi];
-                                    toolboxSubset[blk.type] = 1;
-                                }
-                            }
-                        }).catch(function () {
-                            pxt.log("Failed to decompile tutorial: " + tutorialid);
-                            throw new Error("Failed to decompile tutorial: " + tutorialid);
-                        });
-                    }
-                    return Promise.resolve();
-                })
-                    .then(function () {
-                    // Split the steps
-                    var stepcontent = content.innerHTML.split(newAuthoring ? /<h2.*?>(.*?)<\/h2>/gi : /<h3.*?>(.*?)<\/h3>/gi);
-                    // drop first section
-                    stepcontent.shift();
-                    for (var i = 0; i < stepcontent.length; i += 2) {
-                        content.innerHTML = stepcontent[i + 1];
-                        stepInfo[i / 2].titleContent = (stepcontent[i] || "").replace(/@(fullscreen|unplugged)/g, "").trim();
-                        stepInfo[i / 2].headerContent = "<p>" + content.firstElementChild.innerHTML + "</p>";
-                        stepInfo[i / 2].ariaLabel = content.firstElementChild.textContent;
-                        stepInfo[i / 2].content = stepcontent[i + 1];
-                        stepInfo[i / 2].hasHint = content.childElementCount > 1;
-                    }
-                    content.innerHTML = '';
-                    // return the result
-                    window.parent.postMessage({
-                        type: "tutorial",
-                        tutorial: tutorialid,
-                        subtype: "loaded",
-                        stepInfo: stepInfo,
-                        toolboxSubset: toolboxSubset
-                    }, "*");
-                });
-            })
-                .catch(function (e) {
-                pxt.log("Failed to load tutorial: " + tutorialid);
-                pxt.log(e.message);
-                // return the result
-                window.parent.postMessage({
-                    type: "tutorial",
-                    tutorial: tutorialid,
-                    subtype: "error"
-                }, "*");
-            });
-        }
-        runner.renderTutorialAsync = renderTutorialAsync;
         function decompileToBlocksAsync(code, options) {
             // code may be undefined or empty!!!
             var packageid = options && options.packageId ? "pub:" + options.packageId :
@@ -1356,23 +1395,47 @@ var pxt;
                 return ts.pxtc.localizeApisAsync(apis, runner.mainPkg)
                     .then(function () {
                     var blocksInfo = pxtc.getBlocksInfo(apis);
-                    pxt.blocks.initBlocks(blocksInfo);
+                    pxt.blocks.initializeAndInject(blocksInfo);
                     var bresp = pxtc.decompiler.decompileToBlocks(blocksInfo, resp.ast.getSourceFile("main.ts"), { snippetMode: options && options.snippetMode });
                     if (bresp.diagnostics && bresp.diagnostics.length > 0)
                         bresp.diagnostics.forEach(function (diag) { return console.error(diag.messageText); });
                     if (!bresp.success)
-                        return { package: runner.mainPkg, compileJS: resp, compileBlocks: bresp };
+                        return { package: runner.mainPkg, compileJS: resp, compileBlocks: bresp, apiInfo: apis };
                     pxt.debug(bresp.outfiles["main.blocks"]);
                     return {
                         package: runner.mainPkg,
                         compileJS: resp,
                         compileBlocks: bresp,
+                        apiInfo: apis,
                         blocksSvg: pxt.blocks.render(bresp.outfiles["main.blocks"], options)
                     };
                 });
             });
         }
         runner.decompileToBlocksAsync = decompileToBlocksAsync;
+        function compileBlocksAsync(code, options) {
+            var packageid = options && options.packageId ? "pub:" + options.packageId :
+                options && options.package ? "docs:" + options.package
+                    : null;
+            return loadPackageAsync(packageid, "")
+                .then(function () { return getCompileOptionsAsync(pxt.appTarget.compile ? pxt.appTarget.compile.hasHex : false); })
+                .then(function (opts) {
+                opts.ast = true;
+                var resp = pxtc.compile(opts);
+                var apis = pxtc.getApiInfo(opts, resp.ast);
+                return ts.pxtc.localizeApisAsync(apis, runner.mainPkg)
+                    .then(function () {
+                    var blocksInfo = pxtc.getBlocksInfo(apis);
+                    pxt.blocks.initializeAndInject(blocksInfo);
+                    return {
+                        package: runner.mainPkg,
+                        blocksSvg: pxt.blocks.render(code, options),
+                        apiInfo: apis
+                    };
+                });
+            });
+        }
+        runner.compileBlocksAsync = compileBlocksAsync;
         var pendingLocalToken = [];
         function waitForLocalTokenAsync() {
             if (pxt.Cloud.localToken) {

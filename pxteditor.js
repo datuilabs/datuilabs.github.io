@@ -8,6 +8,8 @@ var pxt;
             FilterState[FilterState["Visible"] = 1] = "Visible";
             FilterState[FilterState["Disabled"] = 2] = "Disabled";
         })(FilterState = editor.FilterState || (editor.FilterState = {}));
+        editor.initExtensionsAsync = function (opts) { return Promise.resolve({}); };
+        editor.initFieldExtensionsAsync = function (opts) { return Promise.resolve({}); };
     })(editor = pxt.editor || (pxt.editor = {}));
 })(pxt || (pxt = {}));
 var pxt;
@@ -25,7 +27,8 @@ var pxt;
          * Some commands may be async, use the ``id`` field to correlate to the original request.
          */
         function bindEditorMessages(projectView) {
-            var allowEditorMessages = pxt.appTarget.appTheme.allowParentController && pxt.BrowserUtils.isIFrame();
+            var allowEditorMessages = (pxt.appTarget.appTheme.allowParentController || pxt.shell.isControllerMode())
+                && pxt.BrowserUtils.isIFrame();
             var allowExtensionMessages = pxt.appTarget.appTheme.allowPackageExtensions;
             var allowSimTelemetry = pxt.appTarget.appTheme.allowSimulatorTelemetry;
             if (!allowEditorMessages && !allowExtensionMessages && !allowSimTelemetry)
@@ -101,6 +104,11 @@ var pxt;
                                         editor.undo();
                                 });
                                 break;
+                            case "setscale": {
+                                var zoommsg_1 = data;
+                                p = p.then(function () { return projectView.editor.setScale(zoommsg_1.scale); });
+                                break;
+                            }
                             case "stopsimulator": {
                                 var stop_1 = data;
                                 p = p.then(function () { return projectView.stopSimulator(stop_1.unload); });
@@ -127,7 +135,7 @@ var pxt;
                             case "renderblocks": {
                                 var rendermsg_1 = data;
                                 p = p.then(function () { return projectView.renderBlocksAsync(rendermsg_1); })
-                                    .then(function (img) { resp_1 = img; });
+                                    .then(function (r) { resp_1 = r.xml; });
                                 break;
                             }
                             case "toggletrace": {
@@ -210,7 +218,7 @@ var pxt;
         function postHostMessageAsync(msg) {
             return new Promise(function (resolve, reject) {
                 var env = pxt.Util.clone(msg);
-                env.id = pxt.Util.guidGen();
+                env.id = ts.pxtc.Util.guidGen();
                 if (msg.response)
                     pendingRequests[env.id] = { resolve: resolve, reject: reject };
                 window.parent.postMessage(env, "*");
@@ -417,7 +425,7 @@ var pxt;
                 outDir: "built",
                 rootDir: ".",
                 noLib: true,
-                mouseWheelZoom: true
+                mouseWheelZoom: false
             });
             // maximum idle time
             monaco.languages.typescript.typescriptDefaults.setMaximunWorkerIdleTime(20 * 60 * 1000);
@@ -430,7 +438,7 @@ var pxt;
                 fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', 'monospace'",
                 scrollBeyondLastLine: false,
                 language: "typescript",
-                mouseWheelZoom: true,
+                mouseWheelZoom: false,
                 wordBasedSuggestions: true,
                 lineNumbersMinChars: 3,
                 formatOnPaste: true,
@@ -441,7 +449,6 @@ var pxt;
                 dragAndDrop: true,
                 matchBrackets: true,
                 occurrencesHighlight: false,
-                mouseWheelScrollSensitivity: 0.5,
                 quickSuggestionsDelay: 200,
                 theme: inverted ? 'vs-dark' : 'vs',
                 //accessibilitySupport: 'on',
@@ -543,8 +550,10 @@ var pxt;
             EditorLayoutType[EditorLayoutType["IDE"] = 0] = "IDE";
             EditorLayoutType[EditorLayoutType["Sandbox"] = 1] = "Sandbox";
             EditorLayoutType[EditorLayoutType["Widget"] = 2] = "Widget";
+            EditorLayoutType[EditorLayoutType["Controller"] = 3] = "Controller";
         })(EditorLayoutType = shell.EditorLayoutType || (shell.EditorLayoutType = {}));
         var layoutType;
+        var editorReadonly = false;
         function init() {
             if (layoutType !== undefined)
                 return;
@@ -552,12 +561,18 @@ var pxt;
                 // in iframe
                 || pxt.BrowserUtils.isIFrame();
             var nosandbox = /nosandbox=1/i.test(window.location.href);
+            var controller = /controller=1/i.test(window.location.href) && pxt.BrowserUtils.isIFrame();
+            var readonly = /readonly=1/i.test(window.location.href);
             var layout = /editorlayout=(widget|sandbox|ide)/i.exec(window.location.href);
             layoutType = EditorLayoutType.IDE;
             if (nosandbox)
                 layoutType = EditorLayoutType.Widget;
+            else if (controller)
+                layoutType = EditorLayoutType.Controller;
             else if (sandbox)
                 layoutType = EditorLayoutType.Sandbox;
+            if (controller && readonly)
+                editorReadonly = true;
             if (layout) {
                 switch (layout[1].toLowerCase()) {
                     case "widget":
@@ -584,10 +599,16 @@ var pxt;
         }
         shell.isSandboxMode = isSandboxMode;
         function isReadOnly() {
-            return isSandboxMode()
-                && !/[?&]edit=1/i.test(window.location.href);
+            return (isSandboxMode()
+                && !/[?&]edit=1/i.test(window.location.href)) ||
+                (isControllerMode() && editorReadonly);
         }
         shell.isReadOnly = isReadOnly;
+        function isControllerMode() {
+            init();
+            return layoutType == EditorLayoutType.Controller;
+        }
+        shell.isControllerMode = isControllerMode;
     })(shell = pxt.shell || (pxt.shell = {}));
 })(pxt || (pxt = {}));
 /// <reference path="../built/pxtlib.d.ts"/>

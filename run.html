@@ -82,10 +82,10 @@
         // This line gets patched up by the cloud
         var pxtConfig = {
     "relprefix": "/./",
+    "verprefix": "",
     "workerjs": "/./worker.js",
-    "tdworkerjs": "/./tdworker.js",
     "monacoworkerjs": "/./monacoworker.js",
-    "pxtVersion": "3.4.8",
+    "pxtVersion": "3.19.2",
     "pxtRelId": "",
     "pxtCdnUrl": "/./",
     "commitCdnUrl": "/./",
@@ -102,6 +102,7 @@
     "isStatic": true
 };
     </script>
+    <!-- @include apptrackingweb.html -->
     <!-- @include apptracking.html -->
     <script type="text/javascript" src="/./embed.js"></script>
     <script type="text/javascript">
@@ -114,6 +115,8 @@
         var footer = !/nofooter(?:[:=])1/i.exec(window.location.href);
         var debugSim = !!/debugSim(?:[:=])1/i.exec(window.location.href);
         var sims = document.getElementById('simulators');
+        var highContrast = !!/hc(?:[:=])1/i.exec(window.location.href);
+        var light = !!/light(?:[:=])1/i.exec(window.location.href);
 
         if (!id && !code && !debugSim) {
             console.error("missing id or code");
@@ -122,8 +125,11 @@
         }
 
         function initAppCache() {
+            if (window.applicationCache.status === window.applicationCache.UPDATEREADY)
+                    window.location.reload();
             window.applicationCache.addEventListener('updateready', () => {
-                window.location.reload();
+                if (window.applicationCache.status === window.applicationCache.UPDATEREADY)
+                    window.location.reload();
             });
         }
         initAppCache();
@@ -146,7 +152,12 @@
                 })
             }
             else if (!debugSim) {
-                var options = { id: id ? id[1] : undefined, code: code ? decodeURIComponent(code[1]) : undefined };
+                var options = { 
+                    id: id ? id[1] : undefined,
+                    code: code ? decodeURIComponent(code[1]) : undefined,
+                    highContrast: highContrast,
+                    light: light
+                };
                 console.log('simulating script')
                 pxt.runner.simulateAsync(sims, options).done(function() {
                     console.log('simulator started...')

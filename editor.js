@@ -44,6 +44,9 @@ var pxt;
                 return __generator(this, function (_f) {
                     switch (_f.label) {
                         case 0:
+                            // pxt.debug('loading extension');
+                            // window.console.log("blah",pxt.Util.downloadLiveTranslationsAsync);
+                            console.log(pxt.appTarget);
                             _a = [];
                             for (_b in pxt.appTarget.bundledpkgs)
                                 _a.push(_b);

@@ -1361,19 +1361,9 @@ var pxsim;
     var util;
     (function (util) {
         function injectPolyphils() {
-            // Polyfill for Uint8Array.slice for IE and Safari
-            // https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.slice
-            // TODO: Move this polyfill to a more appropriate file. It is left here for now because moving it causes a crash in IE; see PXT issue #1301.
-            if (!Uint8Array.prototype.slice) {
-                Object.defineProperty(Uint8Array.prototype, 'slice', {
-                    value: Array.prototype.slice,
-                    writable: true,
-                    enumerable: true
-                });
-            }
             // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/fill
-            if (!Uint8Array.prototype.fill) {
-                Object.defineProperty(Uint8Array.prototype, 'fill', {
+            if (!Array.prototype.fill) {
+                Object.defineProperty(Array.prototype, 'fill', {
                     writable: true,
                     enumerable: true,
                     value: function (value) {
@@ -1407,6 +1397,52 @@ var pxsim;
                         // Step 13.
                         return O;
                     }
+                });
+            }
+            // Polyfill for Uint8Array.slice for IE and Safari
+            // https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.slice
+            // TODO: Move this polyfill to a more appropriate file. It is left here for now because moving it causes a crash in IE; see PXT issue #1301.
+            if (!Uint8Array.prototype.slice) {
+                Object.defineProperty(Uint8Array.prototype, 'slice', {
+                    value: Array.prototype.slice,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint16Array.prototype.slice) {
+                Object.defineProperty(Uint16Array.prototype, 'slice', {
+                    value: Array.prototype.slice,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint32Array.prototype.slice) {
+                Object.defineProperty(Uint32Array.prototype, 'slice', {
+                    value: Array.prototype.slice,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            // https://tc39.github.io/ecma262/#sec-%typedarray%.prototype.fill
+            if (!Uint8Array.prototype.fill) {
+                Object.defineProperty(Uint8Array.prototype, 'fill', {
+                    value: Array.prototype.fill,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint16Array.prototype.fill) {
+                Object.defineProperty(Uint16Array.prototype, 'fill', {
+                    value: Array.prototype.fill,
+                    writable: true,
+                    enumerable: true
+                });
+            }
+            if (!Uint32Array.prototype.fill) {
+                Object.defineProperty(Uint32Array.prototype, 'fill', {
+                    value: Array.prototype.fill,
+                    writable: true,
+                    enumerable: true
                 });
             }
         }
@@ -1482,6 +1518,16 @@ var pxsim;
             return result;
         }
         util.pathJoin = pathJoin;
+        function toArray(a) {
+            if (Array.isArray(a)) {
+                return a;
+            }
+            var r = [];
+            for (var i = 0; i < a.length; ++i)
+                r.push(a[i]);
+            return r;
+        }
+        util.toArray = toArray;
     })(util = pxsim.util || (pxsim.util = {}));
 })(pxsim || (pxsim = {}));
 /// <reference path="./debugProtocol.ts" />
@@ -1562,7 +1608,7 @@ var pxsim;
         return BreakpointMap;
     }());
     pxsim.BreakpointMap = BreakpointMap;
-    function getBreakpointMsg(s, brkId) {
+    function dumpHeap(v, heap) {
         function valToJSON(v) {
             switch (typeof v) {
                 case "string":
@@ -1576,8 +1622,13 @@ var pxsim;
                 case "object":
                     if (!v)
                         return null;
-                    if (v instanceof pxsim.RefObject)
-                        return { id: v.id };
+                    if (v instanceof pxsim.RefObject) {
+                        heap[v.id] = v;
+                        return {
+                            id: v.id,
+                            preview: pxsim.RefObject.toDebugString(v)
+                        };
+                    }
                     return { text: "(object)" };
                 default:
                     throw new Error();
@@ -1587,30 +1638,36 @@ var pxsim;
             var r = {};
             for (var _i = 0, _a = Object.keys(frame); _i < _a.length; _i++) {
                 var k = _a[_i];
-                if (/___\d+$/.test(k)) {
-                    r[k] = valToJSON(frame[k]);
+                // skip members starting with __
+                if (!/^__/.test(k) && /___\d+$/.test(k)) {
+                    r[k.replace(/___\d+$/, '')] = valToJSON(frame[k]);
                 }
             }
             return r;
         }
-        var r = {
+        return frameVars(v);
+    }
+    pxsim.dumpHeap = dumpHeap;
+    function getBreakpointMsg(s, brkId) {
+        var heap = {};
+        var msg = {
             type: "debugger",
             subtype: "breakpoint",
             breakpointId: brkId,
-            globals: frameVars(pxsim.runtime.globals),
-            stackframes: []
+            globals: dumpHeap(pxsim.runtime.globals, heap),
+            stackframes: [],
         };
         while (s != null) {
             var info = s.fn ? s.fn.info : null;
             if (info)
-                r.stackframes.push({
-                    locals: frameVars(s),
+                msg.stackframes.push({
+                    locals: dumpHeap(s, heap),
                     funcInfo: info,
                     breakpointId: s.lastBrkId
                 });
             s = s.parent;
         }
-        return r;
+        return { msg: msg, heap: heap };
     }
     pxsim.getBreakpointMsg = getBreakpointMsg;
     var SimDebugSession = /** @class */ (function (_super) {
@@ -1736,7 +1793,8 @@ var pxsim;
             this.lastBreak = breakMsg;
             this.state = new StoppedState(this.lastBreak, this.breakpoints, this.projectDir);
             if (breakMsg.exceptionMessage) {
-                this.sendEvent(new pxsim.protocol.StoppedEvent("exception", SimDebugSession.THREAD_ID, breakMsg.exceptionMessage));
+                var message = breakMsg.exceptionMessage.replace(/___\d+/g, '');
+                this.sendEvent(new pxsim.protocol.StoppedEvent("exception", SimDebugSession.THREAD_ID, message));
             }
             else {
                 this.sendEvent(new pxsim.protocol.StoppedEvent("breakpoint", SimDebugSession.THREAD_ID));
@@ -1807,7 +1865,6 @@ var pxsim;
         StoppedState.prototype.getFrames = function () {
             var _this = this;
             return this._message.stackframes.map(function (s, i) {
-                ;
                 var bp = _this._map.getById(s.breakpointId);
                 if (bp) {
                     _this._frames[s.breakpointId] = s;
@@ -1892,19 +1949,28 @@ var pxsim;
 /// <reference path="../localtypings/pxtparts.d.ts"/>
 var pxsim;
 (function (pxsim) {
-    function print() {
-        try {
-            window.print();
+    function print(delay) {
+        if (delay === void 0) { delay = 0; }
+        function p() {
+            try {
+                window.print();
+            }
+            catch (e) {
+                // oops
+            }
         }
-        catch (e) {
-            // oops
-        }
+        if (delay)
+            setTimeout(p, delay);
+        else
+            p();
     }
+    pxsim.print = print;
     var Embed;
     (function (Embed) {
         function start() {
             window.addEventListener("message", receiveMessage, false);
             var frameid = window.location.hash.slice(1);
+            initAppcache();
             pxsim.Runtime.postMessage({ type: 'ready', frameid: frameid });
         }
         Embed.start = start;
@@ -1936,7 +2002,7 @@ var pxsim;
                         pxsim.handleCustomMessage(data);
                     break;
                 case 'pxteditor':
-                    break; //handled elsewhere                
+                    break; //handled elsewhere
                 case 'debugger':
                     if (runtime) {
                         runtime.handleDebuggerMsg(data);
@@ -2020,6 +2086,23 @@ var pxsim;
             window.parent.postMessage(message, "*");
         }
     }
+    function initAppcache() {
+        if (typeof window !== 'undefined') {
+            if (window.applicationCache.status === window.applicationCache.UPDATEREADY)
+                reload();
+            window.applicationCache.addEventListener("updateready", function () {
+                if (window.applicationCache.status === window.applicationCache.UPDATEREADY)
+                    reload();
+            });
+        }
+    }
+    function reload() {
+        // Continuously send message just in case the editor isn't ready to handle it yet
+        setInterval(function () {
+            pxsim.Runtime.postMessage({ type: "simulator", command: "reload" });
+        }, 3000);
+    }
+    pxsim.reload = reload;
 })(pxsim || (pxsim = {}));
 pxsim.util.injectPolyphils();
 if (typeof window !== 'undefined') {
@@ -2394,12 +2477,13 @@ var pxsim;
             // wires
             props.allWireColors.forEach(function (clr) {
                 var quant = props.colorToWires[clr].length;
+                var style = props.boardDef.pinStyles[clr] || "female";
                 var cmp = mkCmpDiv("wire", {
                     left: QUANT_LBL(quant),
                     leftSize: WIRE_QUANT_LBL_SIZE,
                     wireClr: clr,
                     cmpScale: PARTS_WIRE_SCALE,
-                    crocClips: props.boardDef.useCrocClips
+                    crocClips: style == "croc"
                 });
                 addClass(cmp, "partslist-wire");
                 panel.appendChild(cmp);
@@ -2435,6 +2519,10 @@ var pxsim;
                     return loc.pin;
             };
             wires.forEach(function (w) {
+                var croc = false;
+                if (w.end.type == "dalboard") {
+                    croc = props.boardDef.pinStyles[w.end.pin] == "croc";
+                }
                 var cmp = mkCmpDiv("wire", {
                     top: mkLabel(w.end),
                     topSize: LOC_LBL_SIZE,
@@ -2442,7 +2530,7 @@ var pxsim;
                     botSize: LOC_LBL_SIZE,
                     wireClr: w.color,
                     cmpHeight: REQ_WIRE_HEIGHT,
-                    crocClips: props.boardDef.useCrocClips
+                    crocClips: croc
                 });
                 addClass(cmp, "cmp-div");
                 reqsDiv.appendChild(cmp);
@@ -2497,6 +2585,8 @@ var pxsim;
             return panel;
         }
         function renderParts(container, options) {
+            if (!options.boardDef.pinStyles)
+                options.boardDef.pinStyles = {};
             if (options.configData)
                 pxsim.setConfigData(options.configData.cfg, options.configData.cfgKey);
             var msg = {
@@ -2557,6 +2647,7 @@ var pxsim;
     pxsim.check = check;
     pxsim.floatingPoint = false;
     pxsim.refCounting = true;
+    pxsim.title = "";
     var cfgKey = {};
     var cfg = {};
     function noRefCounting() {
@@ -2598,6 +2689,10 @@ var pxsim;
         pxsim.floatingPoint = true;
     }
     pxsim.enableFloatingPoint = enableFloatingPoint;
+    function setTitle(t) {
+        pxsim.title = t;
+    }
+    pxsim.setTitle = setTitle;
     var RefObject = /** @class */ (function () {
         function RefObject() {
             this.refcnt = 1;
@@ -2610,6 +2705,26 @@ var pxsim;
         RefObject.prototype.print = function () {
             if (pxsim.runtime && pxsim.runtime.refCountingDebug)
                 console.log("RefObject id:" + this.id + " refs:" + this.refcnt);
+        };
+        // render a debug preview string
+        RefObject.prototype.toDebugString = function () {
+            return "(object)";
+        };
+        RefObject.toAny = function (o) {
+            if (o && o.toAny)
+                return o.toAny();
+            return o;
+        };
+        RefObject.toDebugString = function (o) {
+            if (o === null)
+                return "null";
+            if (o === undefined)
+                return "undefined;";
+            if (o.toDebugString)
+                return o.toDebugString();
+            if (typeof o == "string")
+                return JSON.stringify(o);
+            return o.toString();
         };
         return RefObject;
     }());
@@ -2777,6 +2892,13 @@ var pxsim;
         RefMap.prototype.print = function () {
             if (pxsim.runtime && pxsim.runtime.refCountingDebug)
                 console.log("RefMap id:" + this.id + " refs:" + this.refcnt + " size:" + this.data.length);
+        };
+        RefMap.prototype.toAny = function () {
+            var r = {};
+            this.data.forEach(function (d) {
+                r[d.keyName] = RefObject.toAny(d.val);
+            });
+            return r;
         };
         return RefMap;
     }(RefObject));
@@ -3072,12 +3194,13 @@ var pxsim;
             return r;
         }
         pxtrt.mapGetRef = mapGetRef;
-        function mapSet(map, key, val) {
+        function mapSet(map, key, val, keyName) {
             var i = map.findIdx(key);
             if (i < 0) {
                 map.data.push({
                     key: key << 1,
-                    val: val
+                    val: val,
+                    keyName: keyName
                 });
             }
             else {
@@ -3086,16 +3209,18 @@ var pxsim;
                     map.data[i].key = key << 1;
                 }
                 map.data[i].val = val;
+                map.data[i].keyName = keyName;
             }
             pxtrt.decr(map);
         }
         pxtrt.mapSet = mapSet;
-        function mapSetRef(map, key, val) {
+        function mapSetRef(map, key, val, keyName) {
             var i = map.findIdx(key);
             if (i < 0) {
                 map.data.push({
                     key: (key << 1) | 1,
-                    val: val
+                    val: val,
+                    keyName: keyName
                 });
             }
             else {
@@ -3106,6 +3231,7 @@ var pxsim;
                     map.data[i].key = (key << 1) | 1;
                 }
                 map.data[i].val = val;
+                map.data[i].keyName = keyName;
             }
             pxtrt.decr(map);
         }
@@ -3172,6 +3298,26 @@ var pxsim;
             _this.data = [];
             return _this;
         }
+        RefCollection.prototype.toArray = function () {
+            return this.data.slice(0);
+        };
+        RefCollection.prototype.toAny = function () {
+            return this.data.map(function (v) { return pxsim.RefObject.toAny(v); });
+        };
+        RefCollection.prototype.toDebugString = function () {
+            var s = "[";
+            for (var i = 0; i < this.data.length; ++i) {
+                if (i > 0)
+                    s += ",";
+                s += pxsim.RefObject.toDebugString(this.data[i]);
+                if (s.length > 15) {
+                    s += "...";
+                    break;
+                }
+            }
+            s += "]";
+            return s;
+        };
         RefCollection.prototype.destroy = function () {
             var data = this.data;
             for (var i = 0; i < data.length; ++i) {
@@ -3330,6 +3476,21 @@ var pxsim;
         Math_.idiv = idiv;
         function round(n) { return Math.round(n); }
         Math_.round = round;
+        function roundWithPrecision(x, digits) {
+            digits = digits | 0;
+            // invalid digits input
+            if (digits <= 0)
+                return Math.round(x);
+            if (x == 0)
+                return 0;
+            var r = 0;
+            while (r == 0 && digits < 21) {
+                var d = Math.pow(10, digits++);
+                r = Math.round(x * d + Number.EPSILON) / d;
+            }
+            return r;
+        }
+        Math_.roundWithPrecision = roundWithPrecision;
         function ceil(n) { return Math.ceil(n); }
         Math_.ceil = ceil;
         function floor(n) { return Math.floor(n); }
@@ -3343,31 +3504,45 @@ var pxsim;
                 return Math.pow(x, y) | 0;
         }
         Math_.pow = pow;
+        function clz32(n) { return Math.clz32(n); }
+        Math_.clz32 = clz32;
         function log(n) { return Math.log(n); }
         Math_.log = log;
+        function log10(n) { return Math.log10(n); }
+        Math_.log10 = log10;
+        function log2(n) { return Math.log2(n); }
+        Math_.log2 = log2;
         function exp(n) { return Math.exp(n); }
         Math_.exp = exp;
         function sin(n) { return Math.sin(n); }
         Math_.sin = sin;
+        function sinh(n) { return Math.sinh(n); }
+        Math_.sinh = sinh;
         function cos(n) { return Math.cos(n); }
         Math_.cos = cos;
+        function cosh(n) { return Math.cosh(n); }
+        Math_.cosh = cosh;
         function tan(n) { return Math.tan(n); }
         Math_.tan = tan;
+        function tanh(n) { return Math.tanh(n); }
+        Math_.tanh = tanh;
         function asin(n) { return Math.asin(n); }
         Math_.asin = asin;
+        function asinh(n) { return Math.asinh(n); }
+        Math_.asinh = asinh;
         function acos(n) { return Math.acos(n); }
         Math_.acos = acos;
+        function acosh(n) { return Math.acosh(n); }
+        Math_.acosh = acosh;
         function atan(n) { return Math.atan(n); }
         Math_.atan = atan;
+        function atanh(x) { return Math.atanh(x); }
+        Math_.atanh = atanh;
         function atan2(y, x) { return Math.atan2(y, x); }
         Math_.atan2 = atan2;
-        function trunc(x) {
-            return x > 0 ? Math.floor(x) : Math.ceil(x);
-        }
+        function trunc(x) { return x > 0 ? Math.floor(x) : Math.ceil(x); }
         Math_.trunc = trunc;
-        function random() {
-            return Math.random();
-        }
+        function random() { return Math.random(); }
         Math_.random = random;
         function randomRange(min, max) {
             if (min == max)
@@ -3856,20 +4031,51 @@ var pxsim;
 (function (pxsim) {
     var U;
     (function (U) {
-        function addClass(el, cls) {
-            if (el.classList)
-                el.classList.add(cls);
-            else if (el.className.indexOf(cls) < 0)
-                el.className += ' ' + cls;
+        function addClass(element, classes) {
+            if (!element)
+                return;
+            if (!classes || classes.length == 0)
+                return;
+            function addSingleClass(el, singleCls) {
+                if (el.classList)
+                    el.classList.add(singleCls);
+                else if (el.className.indexOf(singleCls) < 0)
+                    el.className += ' ' + singleCls;
+            }
+            classes.split(' ').forEach(function (cls) {
+                addSingleClass(element, cls);
+            });
         }
         U.addClass = addClass;
-        function removeClass(el, cls) {
-            if (el.classList)
-                el.classList.remove(cls);
-            else
-                el.className = el.className.replace(cls, '').replace(/\s{2,}/, ' ');
+        function removeClass(element, classes) {
+            if (!element)
+                return;
+            if (!classes || classes.length == 0)
+                return;
+            function removeSingleClass(el, singleCls) {
+                if (el.classList)
+                    el.classList.remove(singleCls);
+                else
+                    el.className = el.className.replace(singleCls, '').replace(/\s{2,}/, ' ');
+            }
+            classes.split(' ').forEach(function (cls) {
+                removeSingleClass(element, cls);
+            });
         }
         U.removeClass = removeClass;
+        function remove(element) {
+            element.parentElement.removeChild(element);
+        }
+        U.remove = remove;
+        function removeChildren(element) {
+            while (element.firstChild)
+                element.removeChild(element.firstChild);
+        }
+        U.removeChildren = removeChildren;
+        function clear(element) {
+            removeChildren(element);
+        }
+        U.clear = clear;
         function assert(cond, msg) {
             if (msg === void 0) { msg = "Assertion failed"; }
             if (!cond) {
@@ -3985,8 +4191,9 @@ var pxsim;
     }
     pxsim.initBareRuntime = initBareRuntime;
     var EventQueue = /** @class */ (function () {
-        function EventQueue(runtime) {
+        function EventQueue(runtime, valueToArgs) {
             this.runtime = runtime;
+            this.valueToArgs = valueToArgs;
             this.max = 5;
             this.events = [];
             this.awaiters = [];
@@ -4014,9 +4221,8 @@ var pxsim;
         EventQueue.prototype.poke = function () {
             var _this = this;
             this.lock = true;
-            var top = this.events.shift();
-            this.runtime.runFiberAsync(this.handler, top)
-                .done(function () {
+            var value = this.events.shift();
+            (_a = this.runtime).runFiberAsync.apply(_a, [this.handler].concat((this.valueToArgs ? this.valueToArgs(value) : [value]))).done(function () {
                 // we're done processing the current event, if there is still something left to do, do it
                 if (_this.events.length > 0) {
                     _this.poke();
@@ -4025,18 +4231,19 @@ var pxsim;
                     _this.lock = false;
                 }
             });
+            var _a;
         };
         Object.defineProperty(EventQueue.prototype, "handler", {
             get: function () {
-                return this.mHandler;
+                return this._handler;
             },
             set: function (a) {
-                if (this.mHandler) {
-                    pxsim.pxtcore.decr(this.mHandler);
+                if (this._handler) {
+                    pxsim.pxtcore.decr(this._handler);
                 }
-                this.mHandler = a;
-                if (this.mHandler) {
-                    pxsim.pxtcore.incr(this.mHandler);
+                this._handler = a;
+                if (this._handler) {
+                    pxsim.pxtcore.incr(this._handler);
                 }
             },
             enumerable: true,
@@ -4051,6 +4258,17 @@ var pxsim;
     // overriden at loadtime by specific implementation
     pxsim.initCurrentRuntime = undefined;
     pxsim.handleCustomMessage = undefined;
+    function _leave(s, v) {
+        s.parent.retval = v;
+        if (s.finalCallback)
+            s.finalCallback(v);
+        return s.parent;
+    }
+    // wraps simulator code as STS code - useful for default event handlers
+    function syntheticRefAction(f) {
+        return pxsim.pxtcore.mkAction(0, 0, function (s) { return _leave(s, f(s)); });
+    }
+    pxsim.syntheticRefAction = syntheticRefAction;
     var Runtime = /** @class */ (function () {
         function Runtime(msg) {
             var _this = this;
@@ -4059,6 +4277,8 @@ var pxsim;
             this.running = false;
             this.startTime = 0;
             this.globals = {};
+            this.loopLock = null;
+            this.loopLockWaitList = [];
             this.refCountingDebug = false;
             this.refCounting = true;
             this.refObjId = 1;
@@ -4079,6 +4299,7 @@ var pxsim;
             var yieldSteps = yieldMaxSteps;
             // ---
             var currResume;
+            var dbgHeap;
             var dbgResume;
             var breakFrame = null; // for step-over
             var lastYield = Date.now();
@@ -4092,6 +4313,12 @@ var pxsim;
                 s.pc = -1;
                 return leave(s, s.parent.retval);
             }
+            function flushLoopLock() {
+                while (__this.loopLockWaitList.length > 0 && !__this.loopLock) {
+                    var f = __this.loopLockWaitList.shift();
+                    f();
+                }
+            }
             function maybeYield(s, pc, r0) {
                 yieldSteps = yieldMaxSteps;
                 var now = Date.now();
@@ -4099,11 +4326,16 @@ var pxsim;
                     lastYield = now;
                     s.pc = pc;
                     s.r0 = r0;
+                    var lock_1 = new Object();
+                    __this.loopLock = lock_1;
                     var cont = function () {
                         if (__this.dead)
                             return;
                         U.assert(s.pc == pc);
-                        return loop(s);
+                        U.assert(__this.loopLock === lock_1);
+                        __this.loopLock = null;
+                        loop(s);
+                        flushLoopLock();
                     };
                     //U.nextTick(cont)
                     setTimeout(cont, 5);
@@ -4113,7 +4345,8 @@ var pxsim;
             }
             function setupDebugger(numBreakpoints) {
                 breakpoints = new Uint8Array(numBreakpoints);
-                breakAlways = true;
+                // start running and let user put a breakpoint on start
+                // breakAlways = true
             }
             function isBreakFrame(s) {
                 if (!breakFrame)
@@ -4126,11 +4359,15 @@ var pxsim;
             }
             function breakpoint(s, retPC, brkId, r0) {
                 U.assert(!dbgResume);
+                U.assert(!dbgHeap);
                 s.pc = retPC;
                 s.r0 = r0;
-                Runtime.postMessage(pxsim.getBreakpointMsg(s, brkId));
+                var _a = pxsim.getBreakpointMsg(s, brkId), msg = _a.msg, heap = _a.heap;
+                dbgHeap = heap;
+                Runtime.postMessage(msg);
                 dbgResume = function (m) {
                     dbgResume = null;
+                    dbgHeap = null;
                     if (__this.dead)
                         return;
                     pxsim.runtime = __this;
@@ -4198,6 +4435,21 @@ var pxsim;
                         if (dbgResume)
                             dbgResume(msg);
                         break;
+                    case "variables":
+                        var vmsg = msg;
+                        var vars = undefined;
+                        if (dbgHeap) {
+                            var v = dbgHeap[vmsg.variablesReference];
+                            if (v !== undefined)
+                                vars = pxsim.dumpHeap(v, dbgHeap);
+                        }
+                        Runtime.postMessage({
+                            type: "debugger",
+                            subtype: "variables",
+                            req_seq: msg.seq,
+                            variables: vars
+                        });
+                        break;
                 }
             }
             function loop(p) {
@@ -4205,12 +4457,14 @@ var pxsim;
                     console.log("Runtime terminated");
                     return;
                 }
+                U.assert(!__this.loopLock);
                 try {
                     pxsim.runtime = __this;
                     while (!!p) {
                         __this.currFrame = p;
                         __this.currFrame.overwrittenPC = false;
                         p = p.fn(p);
+                        //if (yieldSteps-- < 0 && maybeYield(p, p.pc, 0)) break;
                         __this.maybeUpdateDisplay();
                         if (__this.currFrame.overwrittenPC)
                             p = __this.currFrame;
@@ -4221,7 +4475,7 @@ var pxsim;
                         __this.errorHandler(e);
                     else {
                         console.error("Simulator crashed, no error handler", e.stack);
-                        var msg_1 = pxsim.getBreakpointMsg(p, p.lastBrkId);
+                        var msg_1 = pxsim.getBreakpointMsg(p, p.lastBrkId).msg;
                         msg_1.exceptionMessage = e.message;
                         msg_1.exceptionStack = e.stack;
                         Runtime.postMessage(msg_1);
@@ -4240,12 +4494,7 @@ var pxsim;
                 s.pc = 0;
                 return s;
             }
-            function leave(s, v) {
-                s.parent.retval = v;
-                if (s.finalCallback)
-                    s.finalCallback(v);
-                return s.parent;
-            }
+            var leave = _leave;
             function setupTop(cb) {
                 var s = setupTopCore(cb);
                 setupResume(s, 0);
@@ -4288,17 +4537,22 @@ var pxsim;
                 if (currResume)
                     oops("already has resume");
                 s.pc = retPC;
-                return function (v) {
+                var start = Date.now();
+                var fn = function (v) {
                     if (__this.dead)
                         return;
+                    if (__this.loopLock) {
+                        __this.loopLockWaitList.push(function () { return fn(v); });
+                        return;
+                    }
                     pxsim.runtime = __this;
+                    var now = Date.now();
+                    if (now - start > 3)
+                        lastYield = now;
                     U.assert(s.pc == retPC);
-                    // TODO should loop() be called here using U.nextTick?
-                    // This matters if the simulator function calls cb()
-                    // synchronously.
                     if (v instanceof pxsim.FnWrapper) {
                         var w = v;
-                        var frame = {
+                        var frame_1 = {
                             parent: s,
                             fn: w.func,
                             lambdaArgs: [w.a0, w.a1, w.a2],
@@ -4307,11 +4561,21 @@ var pxsim;
                             depth: s.depth + 1,
                             finalCallback: w.cb,
                         };
-                        return loop(actionCall(frame));
+                        // If the function we call never pauses, this would cause the stack
+                        // to grow unbounded.
+                        var lock_2 = {};
+                        __this.loopLock = lock_2;
+                        return U.nextTick(function () {
+                            U.assert(__this.loopLock === lock_2);
+                            __this.loopLock = null;
+                            loop(actionCall(frame_1));
+                            flushLoopLock();
+                        });
                     }
                     s.retval = v;
                     return loop(s);
                 };
+                return fn;
             }
             // tslint:disable-next-line
             eval(msg.code);
@@ -4342,8 +4606,9 @@ var pxsim;
                 this.liveRefObjs[id + ""] = object;
             return id;
         };
-        Runtime.prototype.unregisterLiveObject = function (object) {
-            U.assert(object.refcnt == 0, "ref count is not 0");
+        Runtime.prototype.unregisterLiveObject = function (object, keepAlive) {
+            if (!keepAlive)
+                U.assert(object.refcnt == 0, "ref count is not 0");
             delete this.liveRefObjs[object.id + ""];
         };
         Runtime.prototype.runningTime = function () {
@@ -4449,6 +4714,8 @@ var pxsim;
             this.runOptions = {};
             this.state = SimulatorState.Unloaded;
             this.frameCleanupTimeout = 0;
+            this.debuggerSeq = 1;
+            this.debuggerResolvers = {};
         }
         SimulatorDriver.prototype.setHwDebugger = function (hw) {
             if (hw) {
@@ -4477,8 +4744,30 @@ var pxsim;
         SimulatorDriver.prototype.setState = function (state) {
             if (this.state != state) {
                 this.state = state;
+                this.freeze(this.state == SimulatorState.Paused); // don't allow interaction when pause
                 if (this.options.onStateChanged)
                     this.options.onStateChanged(this.state);
+            }
+        };
+        SimulatorDriver.prototype.freeze = function (value) {
+            var cls = "pause-overlay";
+            if (!value) {
+                pxsim.util.toArray(this.container.querySelectorAll("div.simframe div." + cls))
+                    .forEach(function (overlay) { return overlay.parentElement.removeChild(overlay); });
+            }
+            else {
+                pxsim.util.toArray(this.container.querySelectorAll("div.simframe"))
+                    .forEach(function (frame) {
+                    if (frame.querySelector("div." + cls))
+                        return;
+                    var div = document.createElement("div");
+                    div.className = cls;
+                    div.onclick = function (ev) {
+                        ev.preventDefault();
+                        return false;
+                    };
+                    frame.appendChild(div);
+                });
             }
         };
         SimulatorDriver.prototype.postMessage = function (msg, source) {
@@ -4504,15 +4793,17 @@ var pxsim;
                 frame.contentWindow.postMessage(msg, "*");
             }
         };
-        SimulatorDriver.prototype.createFrame = function () {
+        SimulatorDriver.prototype.createFrame = function (light) {
             var wrapper = document.createElement("div");
             wrapper.className = 'simframe';
             var frame = document.createElement('iframe');
             frame.id = 'sim-frame-' + this.nextId();
             frame.allowFullscreen = true;
+            frame.setAttribute('allow', 'autoplay');
             frame.setAttribute('sandbox', 'allow-same-origin allow-scripts');
             frame.sandbox.value = "allow-scripts allow-same-origin";
             var simUrl = this.options.simUrl || (window.pxtConfig || {}).simUrl || "/sim/simulator.html";
+            frame.className = 'no-select';
             if (this.runOptions.aspectRatio)
                 wrapper.style.paddingBottom = (100 / this.runOptions.aspectRatio) + "%";
             frame.src = simUrl + '#' + frame.id;
@@ -4523,6 +4814,7 @@ var pxsim;
         };
         SimulatorDriver.prototype.stop = function (unload) {
             if (unload === void 0) { unload = false; }
+            this.clearDebugger();
             this.postMessage({ type: 'stop' });
             this.setState(SimulatorState.Stopped);
             if (unload)
@@ -4538,7 +4830,7 @@ var pxsim;
         };
         SimulatorDriver.prototype.unload = function () {
             this.cancelFrameCleanup();
-            this.container.innerHTML = '';
+            pxsim.U.removeChildren(this.container);
             this.setState(SimulatorState.Unloaded);
         };
         SimulatorDriver.prototype.mute = function (mute) {
@@ -4603,6 +4895,7 @@ var pxsim;
         };
         SimulatorDriver.prototype.run = function (js, opts) {
             if (opts === void 0) { opts = {}; }
+            this.clearDebugger();
             this.runOptions = opts;
             this.runId = this.nextId();
             this.addEventListeners();
@@ -4616,9 +4909,11 @@ var pxsim;
                 partDefinitions: opts.partDefinitions,
                 mute: opts.mute,
                 highContrast: opts.highContrast,
+                light: opts.light,
                 cdnUrl: opts.cdnUrl,
                 localizedStrings: opts.localizedStrings,
-                refCountingDebug: opts.refCountingDebug
+                refCountingDebug: opts.refCountingDebug,
+                version: opts.version
             };
             this.applyAspectRatio();
             this.scheduleFrameCleanup();
@@ -4626,7 +4921,7 @@ var pxsim;
             var frame = this.container.getElementsByTagName("iframe").item(0);
             // lazy allocate iframe
             if (!frame) {
-                var wrapper = this.createFrame();
+                var wrapper = this.createFrame(opts.light);
                 this.container.appendChild(wrapper);
                 frame = wrapper.firstElementChild;
             }
@@ -4737,13 +5032,34 @@ var pxsim;
             this.traceInterval = intervalMs;
             this.postDebuggerMessage("traceConfig", { interval: intervalMs });
         };
+        SimulatorDriver.prototype.variablesAsync = function (id) {
+            return this.postDebuggerMessageAsync("variables", { variablesReference: id })
+                .then(function (msg) { return msg; }, function (e) { return undefined; });
+        };
         SimulatorDriver.prototype.handleSimulatorCommand = function (msg) {
             if (this.options.onSimulatorCommand)
                 this.options.onSimulatorCommand(msg);
         };
+        SimulatorDriver.prototype.clearDebugger = function () {
+            var _this = this;
+            var e = new Error("Debugging cancelled");
+            Object.keys(this.debuggerResolvers)
+                .forEach(function (k) {
+                var reject = _this.debuggerResolvers[k].reject;
+                reject(e);
+            });
+            this.debuggerResolvers = {};
+            this.debuggerSeq++;
+        };
         SimulatorDriver.prototype.handleDebuggerMessage = function (msg) {
             if (msg.subtype !== "trace") {
                 console.log("DBG-MSG", msg.subtype, msg);
+            }
+            // resolve any request
+            if (msg.seq) {
+                var resolve = this.debuggerResolvers[msg.seq].resolve;
+                if (resolve)
+                    resolve(msg);
             }
             switch (msg.subtype) {
                 case "warning":
@@ -4769,13 +5085,34 @@ var pxsim;
                         this.options.onTraceMessage(msg);
                     }
                     break;
+                default:
+                    var seq = msg.req_seq;
+                    if (seq) {
+                        var resolve = this.debuggerResolvers[seq].resolve;
+                        if (resolve) {
+                            delete this.debuggerResolvers[seq];
+                            resolve(msg);
+                        }
+                    }
+                    break;
             }
         };
-        SimulatorDriver.prototype.postDebuggerMessage = function (subtype, data) {
+        SimulatorDriver.prototype.postDebuggerMessageAsync = function (subtype, data) {
+            var _this = this;
+            if (data === void 0) { data = {}; }
+            return new Promise(function (resolve, reject) {
+                var seq = _this.debuggerSeq++;
+                _this.debuggerResolvers[seq.toString()] = { resolve: resolve, reject: reject };
+                _this.postDebuggerMessage(subtype, data, seq);
+            });
+        };
+        SimulatorDriver.prototype.postDebuggerMessage = function (subtype, data, seq) {
             if (data === void 0) { data = {}; }
             var msg = JSON.parse(JSON.stringify(data));
             msg.type = "debugger";
             msg.subtype = subtype;
+            if (seq)
+                msg.seq = seq;
             this.postMessage(msg);
         };
         SimulatorDriver.prototype.nextId = function () {
@@ -4802,44 +5139,54 @@ var pxsim;
         return res;
     }
     pxsim.mkRange = mkRange;
-    var EventBus = /** @class */ (function () {
-        function EventBus(runtime) {
+    var EventBusGeneric = /** @class */ (function () {
+        function EventBusGeneric(runtime, valueToArgs) {
             this.runtime = runtime;
+            this.valueToArgs = valueToArgs;
             this.queues = {};
             this.nextNotifyEvent = 1024;
         }
-        EventBus.prototype.setNotify = function (notifyID, notifyOneID) {
+        EventBusGeneric.prototype.setNotify = function (notifyID, notifyOneID) {
             this.notifyID = notifyID;
             this.notifyOneID = notifyOneID;
         };
-        EventBus.prototype.start = function (id, evid, create) {
+        EventBusGeneric.prototype.start = function (id, evid, create) {
             var k = id + ":" + evid;
             var queue = this.queues[k];
             if (!queue)
-                queue = this.queues[k] = new pxsim.EventQueue(this.runtime);
+                queue = this.queues[k] = new pxsim.EventQueue(this.runtime, this.valueToArgs);
             return queue;
         };
-        EventBus.prototype.listen = function (id, evid, handler) {
+        EventBusGeneric.prototype.listen = function (id, evid, handler) {
             var q = this.start(id, evid, true);
             q.handler = handler;
         };
-        EventBus.prototype.queue = function (id, evid, value) {
-            if (value === void 0) { value = 0; }
+        EventBusGeneric.prototype.queue = function (id, evid, value) {
+            if (value === void 0) { value = null; }
             // special handling for notify one
             var notifyOne = this.notifyID && this.notifyOneID && id == this.notifyOneID;
             if (notifyOne)
                 id = this.notifyID;
             // grab queue and handle
             var q = this.start(id, evid, false);
-            if (q)
+            if (q) {
                 q.push(value, notifyOne);
+            }
         };
-        EventBus.prototype.wait = function (id, evid, cb) {
+        EventBusGeneric.prototype.wait = function (id, evid, cb) {
             var q = this.start(id, evid, true);
             q.addAwaiter(cb);
         };
-        return EventBus;
+        return EventBusGeneric;
     }());
+    pxsim.EventBusGeneric = EventBusGeneric;
+    var EventBus = /** @class */ (function (_super) {
+        __extends(EventBus, _super);
+        function EventBus() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        return EventBus;
+    }(EventBusGeneric));
     pxsim.EventBus = EventBus;
     var AnimationQueue = /** @class */ (function () {
         function AnimationQueue(runtime) {
@@ -4943,6 +5290,9 @@ var pxsim;
             if (_vca)
                 _vca.gain.value = 0;
             _frequency = 0;
+            if (audio) {
+                audio.pause();
+            }
         }
         AudioContextManager.stop = stop;
         function frequency() {
@@ -4989,6 +5339,7 @@ var pxsim;
                 res += String.fromCharCode(input[i]);
             return res;
         }
+        var audio;
         function playBufferAsync(buf) {
             if (!buf)
                 return Promise.resolve();
@@ -4999,7 +5350,7 @@ var pxsim;
                     resolve = undefined;
                 }
                 var url = "data:audio/wav;base64," + window.btoa(uint8ArrayToString(buf.data));
-                var audio = new Audio(url);
+                audio = new Audio(url);
                 if (_mute)
                     audio.volume = 0;
                 audio.onended = function () { return res(); };
@@ -5461,81 +5812,6 @@ var pxsim;
 })(pxsim || (pxsim = {}));
 var pxsim;
 (function (pxsim) {
-    var PinFlags;
-    (function (PinFlags) {
-        PinFlags[PinFlags["Unused"] = 0] = "Unused";
-        PinFlags[PinFlags["Digital"] = 1] = "Digital";
-        PinFlags[PinFlags["Analog"] = 2] = "Analog";
-        PinFlags[PinFlags["Input"] = 4] = "Input";
-        PinFlags[PinFlags["Output"] = 8] = "Output";
-        PinFlags[PinFlags["Touch"] = 16] = "Touch";
-    })(PinFlags = pxsim.PinFlags || (pxsim.PinFlags = {}));
-    var Pin = /** @class */ (function () {
-        function Pin(id) {
-            this.id = id;
-            this.touched = false;
-            this.value = 0;
-            this.period = 0;
-            this.servoAngle = 0;
-            this.mode = PinFlags.Unused;
-            this.pitch = false;
-            this.pull = 0; // PullDown
-        }
-        Pin.prototype.digitalReadPin = function () {
-            this.mode = PinFlags.Digital | PinFlags.Input;
-            return this.value > 100 ? 1 : 0;
-        };
-        Pin.prototype.digitalWritePin = function (value) {
-            this.mode = PinFlags.Digital | PinFlags.Output;
-            this.value = value > 0 ? 200 : 0;
-            pxsim.runtime.queueDisplayUpdate();
-        };
-        Pin.prototype.setPull = function (pull) {
-            this.pull = pull;
-        };
-        Pin.prototype.analogReadPin = function () {
-            this.mode = PinFlags.Analog | PinFlags.Input;
-            return this.value || 0;
-        };
-        Pin.prototype.analogWritePin = function (value) {
-            this.mode = PinFlags.Analog | PinFlags.Output;
-            this.value = Math.max(0, Math.min(1023, value));
-            pxsim.runtime.queueDisplayUpdate();
-        };
-        Pin.prototype.analogSetPeriod = function (micros) {
-            this.mode = PinFlags.Analog | PinFlags.Output;
-            this.period = micros;
-            pxsim.runtime.queueDisplayUpdate();
-        };
-        Pin.prototype.servoWritePin = function (value) {
-            this.analogSetPeriod(20000);
-            this.servoAngle = Math.max(0, Math.min(180, value));
-            pxsim.runtime.queueDisplayUpdate();
-        };
-        Pin.prototype.servoSetPulse = function (pinId, micros) {
-            // TODO
-        };
-        Pin.prototype.isTouched = function () {
-            this.mode = PinFlags.Touch | PinFlags.Analog | PinFlags.Input;
-            return this.touched;
-        };
-        return Pin;
-    }());
-    pxsim.Pin = Pin;
-    var EdgeConnectorState = /** @class */ (function () {
-        function EdgeConnectorState(props) {
-            this.props = props;
-            this.pins = props.pins.map(function (id) { return id != undefined ? new Pin(id) : null; });
-        }
-        EdgeConnectorState.prototype.getPin = function (id) {
-            return this.pins.filter(function (p) { return p && p.id == id; })[0] || null;
-        };
-        return EdgeConnectorState;
-    }());
-    pxsim.EdgeConnectorState = EdgeConnectorState;
-})(pxsim || (pxsim = {}));
-var pxsim;
-(function (pxsim) {
     var FileSystemState = /** @class */ (function () {
         function FileSystemState() {
             this.files = {};
@@ -5609,26 +5885,6 @@ var pxsim;
 })(pxsim || (pxsim = {}));
 var pxsim;
 (function (pxsim) {
-    var ToggleState = /** @class */ (function () {
-        function ToggleState(pin) {
-            this.pin = pin;
-            this.on = false;
-        }
-        ToggleState.prototype.toggle = function () {
-            this.on = !this.on;
-            if (this.on) {
-                this.pin.value = 200;
-            }
-            else {
-                this.pin.value = 0;
-            }
-        };
-        return ToggleState;
-    }());
-    pxsim.ToggleState = ToggleState;
-})(pxsim || (pxsim = {}));
-var pxsim;
-(function (pxsim) {
     var visuals;
     (function (visuals) {
         visuals.mkBoardView = function (opts) {
@@ -5643,9 +5899,11 @@ var pxsim;
                 var _this = this;
                 this.parts = [];
                 this.boardView = view;
+                this.opts = opts;
+                if (!opts.boardDef.pinStyles)
+                    opts.boardDef.pinStyles = {};
                 this.state = opts.state;
                 var activeComponents = opts.partsList;
-                this.useCrocClips = opts.boardDef.useCrocClips;
                 var useBreadboard = 0 < activeComponents.length || opts.forceBreadboardLayout;
                 if (useBreadboard) {
                     this.breadboard = new visuals.Breadboard({
@@ -5673,7 +5931,7 @@ var pxsim;
                     this.partOverGroup = pxsim.svg.child(this.view, "g");
                     this.style = pxsim.svg.child(this.view, "style", {});
                     this.defs = pxsim.svg.child(this.view, "defs", {});
-                    this.wireFactory = new visuals.WireFactory(under, over, edges, this.style, this.getLocCoord.bind(this));
+                    this.wireFactory = new visuals.WireFactory(under, over, edges, this.style, this.getLocCoord.bind(this), this.getPinStyle.bind(this));
                     var allocRes = pxsim.allocateDefinitions({
                         boardDef: opts.boardDef,
                         partDefs: opts.partDefs,
@@ -5744,6 +6002,12 @@ var pxsim;
                 }
                 return coord;
             };
+            BoardHost.prototype.getPinStyle = function (loc) {
+                if (loc.type == "breadboard")
+                    return "female";
+                else
+                    return this.opts.boardDef.pinStyles[loc.pin] || "female";
+            };
             BoardHost.prototype.addPart = function (partInst) {
                 var _this = this;
                 var part = null;
@@ -5791,7 +6055,7 @@ var pxsim;
                 return part;
             };
             BoardHost.prototype.addWire = function (inst) {
-                return this.wireFactory.addWire(inst.start, inst.end, inst.color, this.useCrocClips);
+                return this.wireFactory.addWire(inst.start, inst.end, inst.color);
             };
             BoardHost.prototype.addAll = function (allocRes) {
                 var _this = this;
@@ -5886,7 +6150,9 @@ var pxsim;
             var removeAll = function (arr, e) {
                 var res = 0;
                 var idx;
+                /* tslint:disable:no-conditional-assignment */
                 while (0 <= (idx = arr.indexOf(e))) {
+                    /* tslint:enable:no-conditional-assignment */
                     arr.splice(idx, 1);
                     res += 1;
                 }
@@ -6046,7 +6312,7 @@ var pxsim;
                 };
                 mkChannel(BAR_HEIGHT + MID_HEIGHT / 2, CHANNEL_HEIGHT, "sim-bb-mid-channel");
                 mkChannel(BAR_HEIGHT, SMALL_CHANNEL_HEIGHT, "sim-bb-sml-channel");
-                mkChannel(BAR_HEIGHT + MID_HEIGHT, SMALL_CHANNEL_HEIGHT), "sim-bb-sml-channel";
+                mkChannel(BAR_HEIGHT + MID_HEIGHT, SMALL_CHANNEL_HEIGHT, "sim-bb-sml-channel");
                 //-----pins
                 var getMidTopOrBot = function (rowIdx) { return rowIdx < visuals.BREADBOARD_MID_ROWS / 2.0 ? "b" : "t"; };
                 var getBarTopOrBot = function (colIdx) { return colIdx < POWER_COLS / 2.0 ? "b" : "t"; };
@@ -6318,149 +6584,6 @@ var pxsim;
 (function (pxsim) {
     var visuals;
     (function (visuals) {
-        function mkBtnSvg(xy) {
-            var _a = ["sim-button", "sim-button-outer"], innerCls = _a[0], outerCls = _a[1];
-            var tabSize = visuals.PIN_DIST / 2.5;
-            var pegR = visuals.PIN_DIST / 5;
-            var btnR = visuals.PIN_DIST * .8;
-            var pegMargin = visuals.PIN_DIST / 8;
-            var plateR = visuals.PIN_DIST / 12;
-            var pegOffset = pegMargin + pegR;
-            var x = xy[0], y = xy[1];
-            var left = x - tabSize / 2;
-            var top = y - tabSize / 2;
-            var plateH = 3 * visuals.PIN_DIST - tabSize;
-            var plateW = 2 * visuals.PIN_DIST + tabSize;
-            var plateL = left;
-            var plateT = top + tabSize;
-            var btnCX = plateL + plateW / 2;
-            var btnCY = plateT + plateH / 2;
-            var btng = pxsim.svg.elt("g");
-            //tabs
-            var mkTab = function (x, y) {
-                pxsim.svg.child(btng, "rect", { class: "sim-button-tab", x: x, y: y, width: tabSize, height: tabSize });
-            };
-            mkTab(left, top);
-            mkTab(left + 2 * visuals.PIN_DIST, top);
-            mkTab(left, top + 3 * visuals.PIN_DIST);
-            mkTab(left + 2 * visuals.PIN_DIST, top + 3 * visuals.PIN_DIST);
-            //plate
-            pxsim.svg.child(btng, "rect", { class: outerCls, x: plateL, y: plateT, rx: plateR, ry: plateR, width: plateW, height: plateH });
-            //pegs
-            var mkPeg = function (x, y) {
-                pxsim.svg.child(btng, "circle", { class: "sim-button-nut", cx: x, cy: y, r: pegR });
-            };
-            mkPeg(plateL + pegOffset, plateT + pegOffset);
-            mkPeg(plateL + plateW - pegOffset, plateT + pegOffset);
-            mkPeg(plateL + pegOffset, plateT + plateH - pegOffset);
-            mkPeg(plateL + plateW - pegOffset, plateT + plateH - pegOffset);
-            //inner btn
-            var innerBtn = pxsim.svg.child(btng, "circle", { class: innerCls, cx: btnCX, cy: btnCY, r: btnR });
-            //return
-            return { el: btng, y: top, x: left, w: plateW, h: plateH + 2 * tabSize };
-        }
-        visuals.mkBtnSvg = mkBtnSvg;
-        visuals.BUTTON_PAIR_STYLE = "\n            .sim-button {\n                pointer-events: none;\n                fill: #000;\n            }\n            .sim-button-outer:active ~ .sim-button,\n            .sim-button-virtual:active {\n                fill: #FFA500;\n            }\n            .sim-button-outer {\n                cursor: pointer;\n                fill: #979797;\n            }\n            .sim-button-outer:hover {\n                stroke:gray;\n                stroke-width: " + visuals.PIN_DIST / 5 + "px;\n            }\n            .sim-button-nut {\n                fill:#000;\n                pointer-events:none;\n            }\n            .sim-button-nut:hover {\n                stroke:" + visuals.PIN_DIST / 15 + "px solid #704A4A;\n            }\n            .sim-button-tab {\n                fill:#FFF;\n                pointer-events:none;\n            }\n            .sim-button-virtual {\n                cursor: pointer;\n                fill: rgba(255, 255, 255, 0.6);\n                stroke: rgba(255, 255, 255, 1);\n                stroke-width: " + visuals.PIN_DIST / 5 + "px;\n            }\n            .sim-button-virtual:hover {\n                stroke: rgba(128, 128, 128, 1);\n            }\n            .sim-text-virtual {\n                fill: #000;\n                pointer-events:none;\n            }\n            ";
-        var ButtonPairView = /** @class */ (function () {
-            function ButtonPairView() {
-                this.style = visuals.BUTTON_PAIR_STYLE;
-            }
-            ButtonPairView.prototype.init = function (bus, state) {
-                this.state = state;
-                this.bus = bus;
-                this.defs = [];
-                this.element = this.mkBtns();
-                this.updateState();
-                this.attachEvents();
-            };
-            ButtonPairView.prototype.moveToCoord = function (xy) {
-                var btnWidth = visuals.PIN_DIST * 3;
-                var x = xy[0], y = xy[1];
-                visuals.translateEl(this.aBtn, [x, y]);
-                visuals.translateEl(this.bBtn, [x + btnWidth, y]);
-                visuals.translateEl(this.abBtn, [x + visuals.PIN_DIST * 1.5, y + visuals.PIN_DIST * 4]);
-            };
-            ButtonPairView.prototype.updateState = function () {
-                var stateBtns = [this.state.aBtn, this.state.bBtn, this.state.abBtn];
-                var svgBtns = [this.aBtn, this.bBtn, this.abBtn];
-                if (this.state.usesButtonAB && this.abBtn.style.visibility != "visible") {
-                    this.abBtn.style.visibility = "visible";
-                }
-            };
-            ButtonPairView.prototype.updateTheme = function () { };
-            ButtonPairView.prototype.mkBtns = function () {
-                this.aBtn = mkBtnSvg([0, 0]).el;
-                this.bBtn = mkBtnSvg([0, 0]).el;
-                var mkVirtualBtn = function () {
-                    var numPins = 2;
-                    var w = visuals.PIN_DIST * 2.8;
-                    var offset = (w - (numPins * visuals.PIN_DIST)) / 2;
-                    var corner = visuals.PIN_DIST / 2;
-                    var cx = 0 - offset + w / 2;
-                    var cy = cx;
-                    var txtSize = visuals.PIN_DIST * 1.3;
-                    var x = -offset;
-                    var y = -offset;
-                    var txtXOff = visuals.PIN_DIST / 7;
-                    var txtYOff = visuals.PIN_DIST / 10;
-                    var btng = pxsim.svg.elt("g");
-                    var btn = pxsim.svg.child(btng, "rect", { class: "sim-button-virtual", x: x, y: y, rx: corner, ry: corner, width: w, height: w });
-                    var btnTxt = visuals.mkTxt(cx + txtXOff, cy + txtYOff, txtSize, 0, "A+B");
-                    pxsim.svg.addClass(btnTxt, "sim-text");
-                    pxsim.svg.addClass(btnTxt, "sim-text-virtual");
-                    btng.appendChild(btnTxt);
-                    return btng;
-                };
-                this.abBtn = mkVirtualBtn();
-                this.abBtn.style.visibility = "hidden";
-                var el = pxsim.svg.elt("g");
-                pxsim.svg.addClass(el, "sim-buttonpair");
-                el.appendChild(this.aBtn);
-                el.appendChild(this.bBtn);
-                el.appendChild(this.abBtn);
-                return el;
-            };
-            ButtonPairView.prototype.attachEvents = function () {
-                var _this = this;
-                var btnStates = [this.state.aBtn, this.state.bBtn];
-                var btnSvgs = [this.aBtn, this.bBtn];
-                btnSvgs.forEach(function (btn, index) {
-                    pxsim.pointerEvents.down.forEach(function (evid) { return btn.addEventListener(evid, function (ev) {
-                        btnStates[index].pressed = true;
-                    }); });
-                    btn.addEventListener(pxsim.pointerEvents.leave, function (ev) {
-                        btnStates[index].pressed = false;
-                    });
-                    btn.addEventListener(pxsim.pointerEvents.up, function (ev) {
-                        btnStates[index].pressed = false;
-                        _this.bus.queue(btnStates[index].id, _this.state.props.BUTTON_EVT_UP);
-                        _this.bus.queue(btnStates[index].id, _this.state.props.BUTTON_EVT_CLICK);
-                    });
-                });
-                var updateBtns = function (s) {
-                    btnStates.forEach(function (b) { return b.pressed = s; });
-                };
-                pxsim.pointerEvents.down.forEach(function (evid) { return _this.abBtn.addEventListener(evid, function (ev) {
-                    updateBtns(true);
-                }); });
-                this.abBtn.addEventListener(pxsim.pointerEvents.leave, function (ev) {
-                    updateBtns(false);
-                });
-                this.abBtn.addEventListener(pxsim.pointerEvents.up, function (ev) {
-                    updateBtns(false);
-                    _this.bus.queue(_this.state.abBtn.id, _this.state.props.BUTTON_EVT_UP);
-                    _this.bus.queue(_this.state.abBtn.id, _this.state.props.BUTTON_EVT_CLICK);
-                });
-            };
-            return ButtonPairView;
-        }());
-        visuals.ButtonPairView = ButtonPairView;
-    })(visuals = pxsim.visuals || (pxsim.visuals = {}));
-})(pxsim || (pxsim = {}));
-var pxsim;
-(function (pxsim) {
-    var visuals;
-    (function (visuals) {
         visuals.BOARD_SYTLE = "\n        .noselect {\n            -webkit-touch-callout: none; /* iOS Safari */\n            -webkit-user-select: none;   /* Chrome/Safari/Opera */\n            -khtml-user-select: none;    /* Konqueror */\n            -moz-user-select: none;      /* Firefox */\n            -ms-user-select: none;       /* Internet Explorer/Edge */\n            user-select: none;           /* Non-prefixed version, currently\n                                            not supported by any browser */\n        }\n\n        .sim-board-pin {\n            fill:#999;\n            stroke:#000;\n            stroke-width:" + visuals.PIN_DIST / 3.0 + "px;\n        }\n        .sim-board-pin-lbl {\n            fill: #333;\n        }\n        .gray-cover {\n            fill:#FFF;\n            opacity: 0.3;\n            stroke-width:0;\n            visibility: hidden;\n        }\n        .sim-board-pin-hover {\n            visibility: hidden;\n            pointer-events: all;\n            stroke-width:" + visuals.PIN_DIST / 6.0 + "px;\n        }\n        .sim-board-pin-hover:hover {\n            visibility: visible;\n        }\n        .sim-board-pin-lbl {\n            visibility: hidden;\n        }\n        .sim-board-outline .sim-board-pin-lbl {\n            visibility: visible;\n        }\n        .sim-board-pin-lbl {\n            fill: #555;\n        }\n        .sim-board-pin-lbl-hover {\n            fill: red;\n        }\n        .sim-board-outline .sim-board-pin-lbl-hover {\n            fill: black;\n        }\n        .sim-board-pin-lbl,\n        .sim-board-pin-lbl-hover {\n            font-family:\"Lucida Console\", Monaco, monospace;\n            pointer-events: all;\n            stroke-width: 0;\n        }\n        .sim-board-pin-lbl-hover {\n            visibility: hidden;\n        }\n        .sim-board-outline .sim-board-pin-hover:hover + .sim-board-pin-lbl,\n        .sim-board-pin-lbl.highlight {\n            visibility: hidden;\n        }\n        .sim-board-outline .sim-board-pin-hover:hover + * + .sim-board-pin-lbl-hover,\n        .sim-board-pin-lbl-hover.highlight {\n            visibility: visible;\n        }\n        /* Graying out */\n        .grayed .sim-board-pin-lbl:not(.highlight) {\n            fill: #AAA;\n        }\n        .grayed .sim-board-pin:not(.highlight) {\n            fill:#BBB;\n            stroke:#777;\n        }\n        .grayed .gray-cover {\n            visibility: inherit;\n        }\n        .grayed .sim-cmp:not(.notgrayed) {\n            opacity: 0.3;\n        }\n        /* Highlighting */\n        .sim-board-pin-lbl.highlight {\n            fill: #000;\n            font-weight: bold;\n        }\n        .sim-board-pin.highlight {\n            fill:#999;\n            stroke:#000;\n        }\n        ";
         var PIN_LBL_SIZE = visuals.PIN_DIST * 0.7;
         var PIN_LBL_HOVER_SIZE = PIN_LBL_SIZE * 1.5;
@@ -6694,67 +6817,6 @@ var pxsim;
 (function (pxsim) {
     var visuals;
     (function (visuals) {
-        function createMicroServoElement() {
-            return pxsim.svg.parseString("\n        <svg xmlns=\"http://www.w3.org/2000/svg\" id=\"svg2\" width=\"112.188\" height=\"299.674\">\n          <g id=\"layer1\" stroke-linecap=\"round\" stroke-linejoin=\"round\" transform=\"scale(0.8)\">\n            <path id=\"path8212\" fill=\"#0061ff\" stroke-width=\"6.6\" d=\"M.378 44.61v255.064h112.188V44.61H.378z\"/>\n            <path id=\"crankbase\" fill=\"#00f\" stroke-width=\"6.6\" d=\"M56.57 88.047C25.328 88.047 0 113.373 0 144.615c.02 22.352 11.807 42.596 32.238 51.66.03 3.318.095 5.24.088 7.938 0 13.947 11.307 25.254 25.254 25.254 13.947 0 25.254-11.307 25.254-25.254-.006-2.986-.415-5.442-.32-8.746 19.487-9.45 30.606-29.195 30.625-50.852 0-31.24-25.33-56.568-56.57-56.568z\"/>\n            <path id=\"lowertip\" fill=\"#00a2ff\" stroke-width=\"2\" d=\"M.476 260.78v38.894h53.82v-10.486a6.82 6.566 0 0 1-4.545-6.182 6.82 6.566 0 0 1 6.82-6.566 6.82 6.566 0 0 1 6.82 6.566 6.82 6.566 0 0 1-4.545 6.182v10.486h53.82V260.78H.475z\"/>\n            <path id=\"uppertip\" fill=\"#00a2ff\" stroke-width=\"2\" d=\"M112.566 83.503V44.61h-53.82v10.487a6.82 6.566 0 0 1 4.544 6.18 6.82 6.566 0 0 1-6.818 6.568 6.82 6.566 0 0 1-6.82-6.567 6.82 6.566 0 0 1 4.546-6.18V44.61H.378v38.893h112.188z\"/>\n            <path id=\"VCC\" fill=\"red\" stroke-width=\"2\" d=\"M53.72 21.93h5.504v22.627H53.72z\"/>\n            <path id=\"LOGIC\" fill=\"#fc0\" stroke-width=\"2\" d=\"M47.3 21.93h5.503v22.627H47.3z\"/>\n            <path id=\"GND\" fill=\"#a02c2c\" stroke-width=\"2\" d=\"M60.14 21.93h5.505v22.627H60.14z\"/>\n            <path id=\"connector\" stroke-width=\"2\" d=\"M45.064 0a1.488 1.488 0 0 0-1.488 1.488v24.5a1.488 1.488 0 0 0 1.488 1.487h22.71a1.488 1.488 0 0 0 1.49-1.488v-24.5A1.488 1.488 0 0 0 67.774 0h-22.71z\"/>\n            <g id=\"crank\" transform=\"translate(0 -752.688)\">\n              <path id=\"arm\" fill=\"#ececec\" stroke=\"#000\" stroke-width=\"1.372\" d=\"M47.767 880.88c-4.447 1.162-8.412 8.278-8.412 18.492s3.77 18.312 8.412 18.494c8.024.314 78.496 5.06 78.51-16.952.012-22.013-74.377-21.117-78.51-20.035z\"/>\n              <circle id=\"path8216\" cx=\"56.661\" cy=\"899.475\" r=\"8.972\" fill=\"gray\" stroke-width=\"2\"/>\n            </g>\n          </g>\n        </svg>\n                    ").firstElementChild;
-        }
-        function mkMicroServoPart(xy) {
-            if (xy === void 0) { xy = [0, 0]; }
-            return { el: createMicroServoElement(), x: xy[0], y: xy[1], w: 112.188, h: 299.674 };
-        }
-        visuals.mkMicroServoPart = mkMicroServoPart;
-        var MicroServoView = /** @class */ (function () {
-            function MicroServoView() {
-                this.style = "";
-                this.overElement = undefined;
-                this.defs = [];
-                this.currentAngle = 0;
-                this.targetAngle = 0;
-                this.lastAngleTime = 0;
-            }
-            MicroServoView.prototype.init = function (bus, state, svgEl, otherParams) {
-                this.state = state;
-                this.pin = this.state.props.servos[pxsim.readPin(otherParams["name"] || otherParams["pin"])];
-                this.bus = bus;
-                this.defs = [];
-                this.initDom();
-                this.updateState();
-            };
-            MicroServoView.prototype.initDom = function () {
-                this.element = createMicroServoElement();
-                this.crankEl = this.element.querySelector("#crank");
-                this.crankTransform = this.crankEl.getAttribute("transform");
-            };
-            MicroServoView.prototype.moveToCoord = function (xy) {
-                var x = xy[0], y = xy[1];
-                visuals.translateEl(this.element, [x, y]);
-            };
-            MicroServoView.prototype.updateState = function () {
-                this.targetAngle = 180.0 - this.state.getPin(this.pin).servoAngle;
-                if (this.targetAngle != this.currentAngle) {
-                    var now = pxsim.U.now();
-                    var cx = 56.661;
-                    var cy = 899.475;
-                    var speed = 300; // 0.1s/60 degree
-                    var dt = Math.min(now - this.lastAngleTime, 50) / 1000;
-                    var delta = this.targetAngle - this.currentAngle;
-                    this.currentAngle += Math.min(Math.abs(delta), speed * dt) * (delta > 0 ? 1 : -1);
-                    this.crankEl.setAttribute("transform", this.crankTransform
-                        + (" rotate(" + this.currentAngle + ", " + cx + ", " + cy + ")"));
-                    this.lastAngleTime = now;
-                    setTimeout(function () { return pxsim.runtime.updateDisplay(); }, 20);
-                }
-            };
-            MicroServoView.prototype.updateTheme = function () {
-            };
-            return MicroServoView;
-        }());
-        visuals.MicroServoView = MicroServoView;
-    })(visuals = pxsim.visuals || (pxsim.visuals = {}));
-})(pxsim || (pxsim = {}));
-var pxsim;
-(function (pxsim) {
-    var visuals;
-    (function (visuals) {
         var WIRE_WIDTH = visuals.PIN_DIST / 2.5;
         var BB_WIRE_SMOOTH = 0.7;
         var INSTR_WIRE_SMOOTH = 0.8;
@@ -6956,7 +7018,7 @@ var pxsim;
         }
         //TODO: make this stupid class obsolete
         var WireFactory = /** @class */ (function () {
-            function WireFactory(underboard, overboard, boardEdges, styleEl, getLocCoord) {
+            function WireFactory(underboard, overboard, boardEdges, styleEl, getLocCoord, getPinStyle) {
                 this.nextWireId = 0;
                 this.styleEl = styleEl;
                 this.styleEl.textContent += visuals.WIRES_CSS;
@@ -6964,6 +7026,7 @@ var pxsim;
                 this.overboard = overboard;
                 this.boardEdges = boardEdges;
                 this.getLocCoord = getLocCoord;
+                this.getPinStyle = getPinStyle;
             }
             WireFactory.prototype.indexOfMin = function (vs) {
                 var minIdx = 0;
@@ -7129,20 +7192,14 @@ var pxsim;
                 this.styleEl.textContent += colorCSS;
                 return { endG: endG, end1: end1, end2: end2, wires: wires };
             };
-            WireFactory.prototype.addWire = function (start, end, color, withCrocs) {
-                if (withCrocs === void 0) { withCrocs = false; }
+            WireFactory.prototype.addWire = function (start, end, color) {
                 var startLoc = this.getLocCoord(start);
                 var endLoc = this.getLocCoord(end);
+                var startStyle = this.getPinStyle(start);
+                var endStyle = this.getPinStyle(end);
                 var wireEls;
-                if (withCrocs && end.type == "dalboard") {
-                    var boardPin = end.pin;
-                    if (boardPin == "P0" || boardPin == "P1" || boardPin == "P2" || boardPin == "GND" || boardPin == "+3v3") {
-                        //HACK
-                        wireEls = this.drawWireWithCrocs(startLoc, endLoc, color);
-                    }
-                    else {
-                        wireEls = this.drawWireWithCrocs(startLoc, endLoc, color, true);
-                    }
+                if (end.type == "dalboard" && endStyle == "croc") {
+                    wireEls = this.drawWireWithCrocs(startLoc, endLoc, color);
                 }
                 else {
                     wireEls = this.drawWire(startLoc, endLoc, color);

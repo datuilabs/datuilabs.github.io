@@ -72,13 +72,28 @@ var pxt;
             };
         }
         analytics.enable = enable;
+        function isCookieBannerVisible() {
+            return typeof mscc !== "undefined" && !mscc.hasConsent();
+        }
+        analytics.isCookieBannerVisible = isCookieBannerVisible;
         function enableCookies() {
-            if (typeof mscc !== "undefined" && !mscc.hasConsent()) {
+            if (isCookieBannerVisible()) {
                 mscc.setConsent();
             }
         }
         analytics.enableCookies = enableCookies;
     })(analytics = pxt.analytics || (pxt.analytics = {}));
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
+})(pxt || (pxt = {}));
+// Needs to be in its own file to avoid a circular dependency: util.ts -> main.ts -> util.ts
+var pxt;
+(function (pxt) {
+    /**
+     * Track an event.
+     */
+    pxt.tickEvent = function (id) { };
 })(pxt || (pxt = {}));
 var ts;
 (function (ts) {
@@ -88,6 +103,260 @@ var ts;
     })(pxtc = ts.pxtc || (ts.pxtc = {}));
 })(ts || (ts = {}));
 var pxtc = ts.pxtc;
+(function (ts) {
+    var pxtc;
+    (function (pxtc) {
+        var Util;
+        (function (Util) {
+            function assert(cond, msg) {
+                if (msg === void 0) { msg = "Assertion failed"; }
+                if (!cond) {
+                    debugger;
+                    throw new Error(msg);
+                }
+            }
+            Util.assert = assert;
+            function flatClone(obj) {
+                if (obj == null)
+                    return null;
+                var r = {};
+                Object.keys(obj).forEach(function (k) { r[k] = obj[k]; });
+                return r;
+            }
+            Util.flatClone = flatClone;
+            function clone(v) {
+                if (v == null)
+                    return null;
+                return JSON.parse(JSON.stringify(v));
+            }
+            Util.clone = clone;
+            function htmlEscape(_input) {
+                if (!_input)
+                    return _input; // null, undefined, empty string test
+                return _input.replace(/([^\w .!?\-$])/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
+            }
+            Util.htmlEscape = htmlEscape;
+            function jsStringQuote(s) {
+                return s.replace(/[^\w .!?\-$]/g, function (c) {
+                    var h = c.charCodeAt(0).toString(16);
+                    return "\\u" + "0000".substr(0, 4 - h.length) + h;
+                });
+            }
+            Util.jsStringQuote = jsStringQuote;
+            function jsStringLiteral(s) {
+                return "\"" + jsStringQuote(s) + "\"";
+            }
+            Util.jsStringLiteral = jsStringLiteral;
+            // Localization functions. Please port any modifications over to pxtsim/localization.ts
+            var _localizeLang = "en";
+            var _localizeStrings = {};
+            var _translationsCache = {};
+            Util.localizeLive = false;
+            var MemTranslationDb = /** @class */ (function () {
+                function MemTranslationDb() {
+                    this.translations = {};
+                }
+                MemTranslationDb.prototype.key = function (lang, filename, branch) {
+                    return lang + "|" + filename + "|" + (branch || "");
+                };
+                MemTranslationDb.prototype.getAsync = function (lang, filename, branch) {
+                    return Promise.resolve(this.translations[this.key(lang, filename, branch)]);
+                };
+                MemTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings) {
+                    this.translations[this.key(lang, filename, branch)] = {
+                        etag: etag,
+                        strings: strings,
+                        cached: true
+                    };
+                    return Promise.resolve();
+                };
+                return MemTranslationDb;
+            }());
+            // wired up in the app to store translations in pouchdb. MAY BE UNDEFINED!
+            Util.translationDb = new MemTranslationDb();
+            /**
+             * Returns the current user language, prepended by "live-" if in live mode
+             */
+            function localeInfo() {
+                return "" + (Util.localizeLive ? "live-" : "") + userLanguage();
+            }
+            Util.localeInfo = localeInfo;
+            /**
+             * Returns current user language iSO-code. Default is `en`.
+             */
+            function userLanguage() {
+                return _localizeLang;
+            }
+            Util.userLanguage = userLanguage;
+            function setUserLanguage(localizeLang) {
+                _localizeLang = localizeLang;
+            }
+            Util.setUserLanguage = setUserLanguage;
+            function isUserLanguageRtl() {
+                // ar: Arabic
+                // dv: Divehi
+                // fa: Farsi
+                // ha: Hausa
+                // he: Hebrew
+                // ks: Kashmiri
+                // ku: Kurdish
+                // ps: Pashto
+                // ur: Urdu
+                // yi: Yiddish
+                return /^ar|dv|fa|ha|he|ks|ku|ps|ur|yi/i.test(_localizeLang);
+            }
+            Util.isUserLanguageRtl = isUserLanguageRtl;
+            function _localize(s) {
+                return _localizeStrings[s] || s;
+            }
+            Util._localize = _localize;
+            function getLocalizedStrings() {
+                return _localizeStrings;
+            }
+            Util.getLocalizedStrings = getLocalizedStrings;
+            function setLocalizedStrings(strs) {
+                _localizeStrings = strs;
+            }
+            Util.setLocalizedStrings = setLocalizedStrings;
+            function translationsCache() {
+                return _translationsCache;
+            }
+            Util.translationsCache = translationsCache;
+            function fmt_va(f, args) {
+                if (args.length == 0)
+                    return f;
+                return f.replace(/\{([0-9]+)(\:[^\}]+)?\}/g, function (s, n, spec) {
+                    var v = args[parseInt(n)];
+                    var r = "";
+                    var fmtMatch = /^:f(\d*)\.(\d+)/.exec(spec);
+                    if (fmtMatch) {
+                        var precision = parseInt(fmtMatch[2]);
+                        var len = parseInt(fmtMatch[1]) || 0;
+                        var fillChar = /^0/.test(fmtMatch[1]) ? "0" : " ";
+                        var num = v.toFixed(precision);
+                        if (len > 0 && precision > 0)
+                            len += precision + 1;
+                        if (len > 0) {
+                            while (num.length < len) {
+                                num = fillChar + num;
+                            }
+                        }
+                        r = num;
+                    }
+                    else if (spec == ":x") {
+                        r = "0x" + v.toString(16);
+                    }
+                    else if (v === undefined)
+                        r = "(undef)";
+                    else if (v === null)
+                        r = "(null)";
+                    else if (v.toString)
+                        r = v.toString();
+                    else
+                        r = v + "";
+                    if (spec == ":a") {
+                        if (/^\s*[euioah]/.test(r.toLowerCase()))
+                            r = "an " + r;
+                        else if (/^\s*[bcdfgjklmnpqrstvwxz]/.test(r.toLowerCase()))
+                            r = "a " + r;
+                    }
+                    else if (spec == ":s") {
+                        if (v == 1)
+                            r = "";
+                        else
+                            r = "s";
+                    }
+                    else if (spec == ":q") {
+                        r = Util.htmlEscape(r);
+                    }
+                    else if (spec == ":jq") {
+                        r = Util.jsStringQuote(r);
+                    }
+                    else if (spec == ":uri") {
+                        r = encodeURIComponent(r).replace(/'/g, "%27").replace(/"/g, "%22");
+                    }
+                    else if (spec == ":url") {
+                        r = encodeURI(r).replace(/'/g, "%27").replace(/"/g, "%22");
+                    }
+                    else if (spec == ":%") {
+                        r = (v * 100).toFixed(1).toString() + '%';
+                    }
+                    return r;
+                });
+            }
+            Util.fmt_va = fmt_va;
+            function fmt(f) {
+                var args = [];
+                for (var _i = 1; _i < arguments.length; _i++) {
+                    args[_i - 1] = arguments[_i];
+                }
+                return fmt_va(f, args);
+            }
+            Util.fmt = fmt;
+            var locStats = {};
+            function dumpLocStats() {
+                var r = {};
+                Object.keys(locStats).sort(function (a, b) { return locStats[b] - locStats[a]; })
+                    .forEach(function (k) { return r[k] = k; });
+                console.log('prioritized list of strings:');
+                console.log(JSON.stringify(r, null, 2));
+            }
+            Util.dumpLocStats = dumpLocStats;
+            var sForPlural = true;
+            function lf_va(format, args) {
+                locStats[format] = (locStats[format] || 0) + 1;
+                var lfmt = Util._localize(format);
+                if (!sForPlural && lfmt != format && /\d:s\}/.test(lfmt)) {
+                    lfmt = lfmt.replace(/\{\d+:s\}/g, "");
+                }
+                lfmt = lfmt.replace(/\{(id|loc):[^\}]+\}/g, '');
+                return fmt_va(lfmt, args);
+            }
+            Util.lf_va = lf_va;
+            function lf(format) {
+                var args = [];
+                for (var _i = 1; _i < arguments.length; _i++) {
+                    args[_i - 1] = arguments[_i];
+                }
+                return lf_va(format, args);
+            }
+            Util.lf = lf;
+            /**
+             * Similar to lf but the string do not get extracted into the loc file.
+             */
+            function rlf(format) {
+                var args = [];
+                for (var _i = 1; _i < arguments.length; _i++) {
+                    args[_i - 1] = arguments[_i];
+                }
+                return lf_va(format, args);
+            }
+            Util.rlf = rlf;
+            function lookup(m, key) {
+                if (m.hasOwnProperty(key))
+                    return m[key];
+                return null;
+            }
+            Util.lookup = lookup;
+            function isoTime(time) {
+                var d = new Date(time * 1000);
+                return Util.fmt("{0}-{1:f02.0}-{2:f02.0} {3:f02.0}:{4:f02.0}:{5:f02.0}", d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds());
+            }
+            Util.isoTime = isoTime;
+            function userError(msg) {
+                var e = new Error(msg);
+                e.isUserError = true;
+                throw e;
+            }
+            Util.userError = userError;
+        })(Util = pxtc.Util || (pxtc.Util = {}));
+    })(pxtc = ts.pxtc || (ts.pxtc = {}));
+})(ts || (ts = {}));
+var lf = ts.pxtc.Util.lf;
+/// <reference path="tickEvent.ts" />
+/// <reference path="apptarget.ts"/>
+/// <reference path="commonutil.ts"/>
+var ts;
 (function (ts) {
     var pxtc;
     (function (pxtc) {
@@ -127,14 +396,6 @@ var pxtc = ts.pxtc;
                 }
             }
             Util.bufferSerial = bufferSerial;
-            function assert(cond, msg) {
-                if (msg === void 0) { msg = "Assertion failed"; }
-                if (!cond) {
-                    debugger;
-                    throw new Error(msg);
-                }
-            }
-            Util.assert = assert;
             function fileReadAsBufferAsync(f) {
                 if (!f)
                     return Promise.resolve(null);
@@ -193,20 +454,6 @@ var pxtc = ts.pxtc;
                 return arr;
             }
             Util.reversed = reversed;
-            function flatClone(obj) {
-                if (obj == null)
-                    return null;
-                var r = {};
-                Object.keys(obj).forEach(function (k) { r[k] = obj[k]; });
-                return r;
-            }
-            Util.flatClone = flatClone;
-            function clone(v) {
-                if (v == null)
-                    return null;
-                return JSON.parse(JSON.stringify(v));
-            }
-            Util.clone = clone;
             function iterMap(m, f) {
                 Object.keys(m).forEach(function (k) { return f(k, m[k]); });
             }
@@ -227,12 +474,6 @@ var pxtc = ts.pxtc;
                 return Object.keys(m || {}).map(function (k) { return m[k]; });
             }
             Util.values = values;
-            function lookup(m, key) {
-                if (m.hasOwnProperty(key))
-                    return m[key];
-                return null;
-            }
-            Util.lookup = lookup;
             function pushRange(trg, src) {
                 for (var i = 0; i < src.length; ++i)
                     trg.push(src[i]);
@@ -281,12 +522,12 @@ var pxtc = ts.pxtc;
                     if (isKV(trg[k]) && isKV(src[k]))
                         jsonMergeFrom(trg[k], src[k]);
                     else
-                        trg[k] = clone(src[k]);
+                        trg[k] = Util.clone(src[k]);
                 });
             }
             Util.jsonMergeFrom = jsonMergeFrom;
             function jsonCopyFrom(trg, src) {
-                var v = clone(src);
+                var v = Util.clone(src);
                 for (var _i = 0, _a = Object.keys(src); _i < _a.length; _i++) {
                     var k = _a[_i];
                     trg[k] = v[k];
@@ -298,7 +539,7 @@ var pxtc = ts.pxtc;
                 var res = {};
                 var loop = function (pref, v) {
                     if (v !== null && typeof v == "object") {
-                        assert(!Array.isArray(v));
+                        Util.assert(!Array.isArray(v));
                         if (pref)
                             pref += ".";
                         for (var _i = 0, _a = Object.keys(v); _i < _a.length; _i++) {
@@ -526,11 +767,6 @@ var pxtc = ts.pxtc;
                 return arr[randomUint32() % arr.length];
             }
             Util.randomPick = randomPick;
-            function isoTime(time) {
-                var d = new Date(time * 1000);
-                return Util.fmt("{0}-{1:f02.0}-{2:f02.0} {3:f02.0}:{4:f02.0}:{5:f02.0}", d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds());
-            }
-            Util.isoTime = isoTime;
             function timeSince(time) {
                 var now = Date.now();
                 time *= 1000;
@@ -540,41 +776,41 @@ var pxtc = ts.pxtc;
                 if (diff < -30) {
                     diff = -diff;
                     if (diff < 60)
-                        return lf("in a few seconds");
+                        return Util.lf("in a few seconds");
                     if (diff < 2 * 60)
-                        return lf("in a minute");
+                        return Util.lf("in a minute");
                     if (diff < 60 * 60)
-                        return lf("in {0} minute{0:s}", Math.floor(diff / 60));
+                        return Util.lf("in {0} minute{0:s}", Math.floor(diff / 60));
                     if (diff < 2 * 60 * 60)
-                        return lf("in an hour");
+                        return Util.lf("in an hour");
                     if (diff < 60 * 60 * 24)
-                        return lf("in {0} hour{0:s}", Math.floor(diff / 60 / 60));
+                        return Util.lf("in {0} hour{0:s}", Math.floor(diff / 60 / 60));
                     if (diff < 60 * 60 * 24 * 30)
-                        return lf("in {0} day{0:s}", Math.floor(diff / 60 / 60 / 24));
+                        return Util.lf("in {0} day{0:s}", Math.floor(diff / 60 / 60 / 24));
                     if (diff < 60 * 60 * 24 * 365)
-                        return lf("in {0} month{0:s}", Math.floor(diff / 60 / 60 / 24 / 30));
-                    return lf("in {0} year{0:s}", Math.floor(diff / 60 / 60 / 24 / 365));
+                        return Util.lf("in {0} month{0:s}", Math.floor(diff / 60 / 60 / 24 / 30));
+                    return Util.lf("in {0} year{0:s}", Math.floor(diff / 60 / 60 / 24 / 365));
                 }
                 else {
                     if (diff < 0)
-                        return lf("now");
+                        return Util.lf("now");
                     if (diff < 10)
-                        return lf("a few seconds ago");
+                        return Util.lf("a few seconds ago");
                     if (diff < 60)
-                        return lf("{0} second{0:s} ago", Math.floor(diff));
+                        return Util.lf("{0} second{0:s} ago", Math.floor(diff));
                     if (diff < 2 * 60)
-                        return lf("a minute ago");
+                        return Util.lf("a minute ago");
                     if (diff < 60 * 60)
-                        return lf("{0} minute{0:s} ago", Math.floor(diff / 60));
+                        return Util.lf("{0} minute{0:s} ago", Math.floor(diff / 60));
                     if (diff < 2 * 60 * 60)
-                        return lf("an hour ago");
+                        return Util.lf("an hour ago");
                     if (diff < 60 * 60 * 24)
-                        return lf("{0} hour{0:s} ago", Math.floor(diff / 60 / 60));
+                        return Util.lf("{0} hour{0:s} ago", Math.floor(diff / 60 / 60));
                     if (diff < 60 * 60 * 24 * 30)
-                        return lf("{0} day{0:s} ago", Math.floor(diff / 60 / 60 / 24));
+                        return Util.lf("{0} day{0:s} ago", Math.floor(diff / 60 / 60 / 24));
                     if (diff < 60 * 60 * 24 * 365)
-                        return lf("{0} month{0:s} ago", Math.floor(diff / 60 / 60 / 24 / 30));
-                    return lf("{0} year{0:s} ago", Math.floor(diff / 60 / 60 / 24 / 365));
+                        return Util.lf("{0} month{0:s} ago", Math.floor(diff / 60 / 60 / 24 / 30));
+                    return Util.lf("{0} year{0:s} ago", Math.floor(diff / 60 / 60 / 24 / 365));
                 }
             }
             Util.timeSince = timeSince;
@@ -646,12 +882,6 @@ var pxtc = ts.pxtc;
                 return requestAsync({ url: url, data: data || {} }).then(function (resp) { return resp.json; });
             }
             Util.httpPostJsonAsync = httpPostJsonAsync;
-            function userError(msg) {
-                var e = new Error(msg);
-                e.isUserError = true;
-                throw e;
-            }
-            Util.userError = userError;
             // this will take lower 8 bits from each character
             function stringToUint8Array(input) {
                 var len = input.length;
@@ -863,65 +1093,6 @@ var pxtc = ts.pxtc;
                 return f() + f() + "-" + f() + "-4" + f().slice(-3) + "-" + f() + "-" + f() + f() + f();
             }
             Util.guidGen = guidGen;
-            // Localization functions. Please port any modifications over to pxtsim/localization.ts
-            var _localizeLang = "en";
-            var _localizeStrings = {};
-            var _translationsCache = {};
-            Util.localizeLive = false;
-            var MemTranslationDb = /** @class */ (function () {
-                function MemTranslationDb() {
-                    this.translations = {};
-                }
-                MemTranslationDb.prototype.key = function (lang, filename, branch) {
-                    return lang + "|" + filename + "|" + (branch || "");
-                };
-                MemTranslationDb.prototype.getAsync = function (lang, filename, branch) {
-                    return Promise.resolve(this.translations[this.key(lang, filename, branch)]);
-                };
-                MemTranslationDb.prototype.setAsync = function (lang, filename, branch, etag, strings) {
-                    this.translations[this.key(lang, filename, branch)] = {
-                        etag: etag,
-                        strings: strings,
-                        cached: true
-                    };
-                    return Promise.resolve();
-                };
-                return MemTranslationDb;
-            }());
-            // wired up in the app to store translations in pouchdb. MAY BE UNDEFINED!
-            Util.translationDb = new MemTranslationDb();
-            /**
-             * Returns the current user language, prepended by "live-" if in live mode
-             */
-            function localeInfo() {
-                return "" + (Util.localizeLive ? "live-" : "") + userLanguage();
-            }
-            Util.localeInfo = localeInfo;
-            /**
-             * Returns current user language iSO-code. Default is `en`.
-             */
-            function userLanguage() {
-                return _localizeLang;
-            }
-            Util.userLanguage = userLanguage;
-            function isUserLanguageRtl() {
-                // ar: Arabic
-                // dv: Divehi
-                // fa: Farsi
-                // ha: Hausa
-                // he: Hebrew
-                // ks: Kashmiri
-                // ku: Kurdish
-                // ps: Pashto
-                // ur: Urdu
-                // yi: Yiddish
-                return /^ar|dv|fa|ha|he|ks|ku|ps|ur|yi/i.test(_localizeLang);
-            }
-            Util.isUserLanguageRtl = isUserLanguageRtl;
-            function _localize(s) {
-                return _localizeStrings[s] || s;
-            }
-            Util._localize = _localize;
             function downloadLiveTranslationsAsync(lang, filename, branch, etag) {
                 // hitting the cloud
                 function downloadFromCloudAsync() {
@@ -964,28 +1135,30 @@ var pxtc = ts.pxtc;
                 });
             }
             Util.downloadLiveTranslationsAsync = downloadLiveTranslationsAsync;
-            function getLocalizedStrings() {
-                return _localizeStrings;
-            }
-            Util.getLocalizedStrings = getLocalizedStrings;
-            function setLocalizedStrings(strs) {
-                _localizeStrings = strs;
-            }
-            Util.setLocalizedStrings = setLocalizedStrings;
             function normalizeLanguageCode(code) {
-                if (!/^(es|pt|si|sv|zh)/i.test(code))
-                    code = code.split("-")[0];
-                return code;
+                var langParts = /^(\w{2})-(\w{2}$)/i.exec(code);
+                if (langParts && langParts[1] && langParts[2]) {
+                    return langParts[1].toLowerCase() + "-" + langParts[2].toUpperCase();
+                }
+                else {
+                    return code.toLowerCase();
+                }
             }
-            function updateLocalizationAsync(targetId, simulator, baseUrl, code, pxtBranch, targetBranch, live) {
+            Util.normalizeLanguageCode = normalizeLanguageCode;
+            function isLocaleEnabled(code) {
                 code = normalizeLanguageCode(code);
-                if (code === _localizeLang)
+                return pxt.appTarget.appTheme && pxt.appTarget.appTheme.availableLocales && pxt.appTarget.appTheme.availableLocales.indexOf(code) > -1;
+            }
+            Util.isLocaleEnabled = isLocaleEnabled;
+            function updateLocalizationAsync(targetId, simulator, baseUrl, code, pxtBranch, targetBranch, live, force) {
+                code = normalizeLanguageCode(code);
+                if (code === Util.userLanguage() || (!isLocaleEnabled(code) && !force))
                     return Promise.resolve();
                 return downloadTranslationsAsync(targetId, simulator, baseUrl, code, pxtBranch, targetBranch, live)
                     .then(function (translations) {
                     if (translations) {
-                        _localizeLang = code;
-                        _localizeStrings = translations;
+                        Util.setUserLanguage(code);
+                        Util.setLocalizedStrings(translations);
                         if (live) {
                             Util.localizeLive = true;
                         }
@@ -994,9 +1167,9 @@ var pxtc = ts.pxtc;
                 });
             }
             Util.updateLocalizationAsync = updateLocalizationAsync;
-            function downloadSimulatorLocalizationAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live) {
+            function downloadSimulatorLocalizationAsync(targetId, baseUrl, code, pxtBranch, targetBranch, live, force) {
                 code = normalizeLanguageCode(code);
-                if (code === _localizeLang)
+                if (code === Util.userLanguage() || (!isLocaleEnabled(code) && !force))
                     return Promise.resolve(undefined);
                 return downloadTranslationsAsync(targetId, true, baseUrl, code, pxtBranch, targetBranch, live);
             }
@@ -1004,8 +1177,8 @@ var pxtc = ts.pxtc;
             function downloadTranslationsAsync(targetId, simulator, baseUrl, code, pxtBranch, targetBranch, live) {
                 code = normalizeLanguageCode(code);
                 var translationsCacheId = code + "/" + live + "/" + simulator;
-                if (_translationsCache[translationsCacheId]) {
-                    return Promise.resolve(_translationsCache[translationsCacheId]);
+                if (Util.translationsCache()[translationsCacheId]) {
+                    return Promise.resolve(Util.translationsCache()[translationsCacheId]);
                 }
                 var stringFiles = simulator
                     ? [{ branch: targetBranch, path: targetId + "/sim-strings.json" }]
@@ -1025,16 +1198,21 @@ var pxtc = ts.pxtc;
                         .forEach(function (k) { return translations[k] = tr[k]; });
                 }
                 if (live) {
-                    var hadError_1 = false;
+                    var errorCount_1 = 0;
                     var pAll = Promise.mapSeries(stringFiles, function (file) { return downloadLiveTranslationsAsync(code, file.path, file.branch)
                         .then(mergeTranslations, function (e) {
                         console.log(e.message);
-                        hadError_1 = true;
+                        ++errorCount_1;
                     }); });
                     return pAll.then(function () {
                         // Cache translations unless there was an error for one of the files
-                        if (!hadError_1) {
-                            _translationsCache[translationsCacheId] = translations;
+                        if (errorCount_1) {
+                            Util.translationsCache()[translationsCacheId] = translations;
+                        }
+                        if (errorCount_1 === stringFiles.length || !translations) {
+                            // Retry with non-live translations by setting live to false
+                            pxt.tickEvent("translations.livetranslationsfailed");
+                            return downloadTranslationsAsync(targetId, simulator, baseUrl, code, pxtBranch, targetBranch, false);
                         }
                         return Promise.resolve(translations);
                     });
@@ -1044,7 +1222,7 @@ var pxtc = ts.pxtc;
                         .then(function (tr) {
                         if (tr) {
                             translations = tr;
-                            _translationsCache[translationsCacheId] = translations;
+                            Util.translationsCache()[translationsCacheId] = translations;
                         }
                     }, function (e) {
                         console.error('failed to load localizations');
@@ -1053,133 +1231,6 @@ var pxtc = ts.pxtc;
                 }
             }
             Util.downloadTranslationsAsync = downloadTranslationsAsync;
-            function htmlEscape(_input) {
-                if (!_input)
-                    return _input; // null, undefined, empty string test
-                return _input.replace(/([^\w .!?\-$])/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; });
-            }
-            Util.htmlEscape = htmlEscape;
-            function jsStringQuote(s) {
-                return s.replace(/[^\w .!?\-$]/g, function (c) {
-                    var h = c.charCodeAt(0).toString(16);
-                    return "\\u" + "0000".substr(0, 4 - h.length) + h;
-                });
-            }
-            Util.jsStringQuote = jsStringQuote;
-            function jsStringLiteral(s) {
-                return "\"" + jsStringQuote(s) + "\"";
-            }
-            Util.jsStringLiteral = jsStringLiteral;
-            function fmt_va(f, args) {
-                if (args.length == 0)
-                    return f;
-                return f.replace(/\{([0-9]+)(\:[^\}]+)?\}/g, function (s, n, spec) {
-                    var v = args[parseInt(n)];
-                    var r = "";
-                    var fmtMatch = /^:f(\d*)\.(\d+)/.exec(spec);
-                    if (fmtMatch) {
-                        var precision = parseInt(fmtMatch[2]);
-                        var len = parseInt(fmtMatch[1]) || 0;
-                        var fillChar = /^0/.test(fmtMatch[1]) ? "0" : " ";
-                        var num = v.toFixed(precision);
-                        if (len > 0 && precision > 0)
-                            len += precision + 1;
-                        if (len > 0) {
-                            while (num.length < len) {
-                                num = fillChar + num;
-                            }
-                        }
-                        r = num;
-                    }
-                    else if (spec == ":x") {
-                        r = "0x" + v.toString(16);
-                    }
-                    else if (v === undefined)
-                        r = "(undef)";
-                    else if (v === null)
-                        r = "(null)";
-                    else if (v.toString)
-                        r = v.toString();
-                    else
-                        r = v + "";
-                    if (spec == ":a") {
-                        if (/^\s*[euioah]/.test(r.toLowerCase()))
-                            r = "an " + r;
-                        else if (/^\s*[bcdfgjklmnpqrstvwxz]/.test(r.toLowerCase()))
-                            r = "a " + r;
-                    }
-                    else if (spec == ":s") {
-                        if (v == 1)
-                            r = "";
-                        else
-                            r = "s";
-                    }
-                    else if (spec == ":q") {
-                        r = Util.htmlEscape(r);
-                    }
-                    else if (spec == ":jq") {
-                        r = Util.jsStringQuote(r);
-                    }
-                    else if (spec == ":uri") {
-                        r = encodeURIComponent(r).replace(/'/g, "%27").replace(/"/g, "%22");
-                    }
-                    else if (spec == ":url") {
-                        r = encodeURI(r).replace(/'/g, "%27").replace(/"/g, "%22");
-                    }
-                    else if (spec == ":%") {
-                        r = (v * 100).toFixed(1).toString() + '%';
-                    }
-                    return r;
-                });
-            }
-            Util.fmt_va = fmt_va;
-            function fmt(f) {
-                var args = [];
-                for (var _i = 1; _i < arguments.length; _i++) {
-                    args[_i - 1] = arguments[_i];
-                }
-                return fmt_va(f, args);
-            }
-            Util.fmt = fmt;
-            var locStats = {};
-            function dumpLocStats() {
-                var r = {};
-                Object.keys(locStats).sort(function (a, b) { return locStats[b] - locStats[a]; })
-                    .forEach(function (k) { return r[k] = k; });
-                console.log('prioritized list of strings:');
-                console.log(JSON.stringify(r, null, 2));
-            }
-            Util.dumpLocStats = dumpLocStats;
-            var sForPlural = true;
-            function lf_va(format, args) {
-                locStats[format] = (locStats[format] || 0) + 1;
-                var lfmt = Util._localize(format);
-                if (!sForPlural && lfmt != format && /\d:s\}/.test(lfmt)) {
-                    lfmt = lfmt.replace(/\{\d+:s\}/g, "");
-                }
-                lfmt = lfmt.replace(/\{(id|loc):[^\}]+\}/g, '');
-                return fmt_va(lfmt, args);
-            }
-            Util.lf_va = lf_va;
-            function lf(format) {
-                var args = [];
-                for (var _i = 1; _i < arguments.length; _i++) {
-                    args[_i - 1] = arguments[_i];
-                }
-                return lf_va(format, args);
-            }
-            Util.lf = lf;
-            /**
-             * Similar to lf but the string do not get extracted into the loc file.
-             */
-            function rlf(format) {
-                var args = [];
-                for (var _i = 1; _i < arguments.length; _i++) {
-                    args[_i - 1] = arguments[_i];
-                }
-                return lf_va(format, args);
-            }
-            Util.rlf = rlf;
             function capitalize(n) {
                 return n ? (n[0].toLocaleUpperCase() + n.slice(1)) : n;
             }
@@ -1434,13 +1485,20 @@ var pxtc = ts.pxtc;
 /// <reference path="../localtypings/pxtparts.d.ts"/>
 /// <reference path="../localtypings/pxtarget.d.ts"/>
 /// <reference path="util.ts"/>
+/// <reference path="apptarget.ts"/>
+/// <reference path="tickEvent.ts"/>
 var pxt;
 (function (pxt) {
     pxt.U = pxtc.Util;
     pxt.Util = pxtc.Util;
-    var lf = pxt.U.lf;
+    var savedAppTarget;
     function setAppTarget(trg) {
         pxt.appTarget = trg || {};
+        patchAppTarget();
+        savedAppTarget = pxt.U.clone(pxt.appTarget);
+    }
+    pxt.setAppTarget = setAppTarget;
+    function patchAppTarget() {
         // patch-up the target
         var comp = pxt.appTarget.compile;
         if (!comp)
@@ -1464,6 +1522,10 @@ var pxt;
             comp.floatingPoint = true;
             comp.needsUnboxing = true;
         }
+        if (!comp.vtableShift)
+            comp.vtableShift = 2;
+        if (!comp.useUF2 && !comp.useELF && comp.noSourceInFlash == undefined)
+            comp.noSourceInFlash = true; // no point putting sources in hex to be flashed
         if (!pxt.appTarget.appTheme)
             pxt.appTarget.appTheme = {};
         if (!pxt.appTarget.appTheme.embedUrl)
@@ -1473,8 +1535,51 @@ var pxt;
             if (cs.yottaTarget && !cs.yottaBinary)
                 cs.yottaBinary = "pxt-microbit-app-combined.hex";
         }
+        // patch logo locations
+        var theme = pxt.appTarget.appTheme;
+        if (theme) {
+            Object.keys(theme)
+                .filter(function (k) { return /(logo|hero)$/i.test(k) && /^@cdnUrl@/.test(theme[k]); })
+                .forEach(function (k) { return theme[k] = pxt.BrowserUtils.patchCdn(theme[k]); });
+        }
+        // patching simulator images
+        var sim = pxt.appTarget.simulator;
+        if (sim
+            && sim.boardDefinition
+            && sim.boardDefinition.visual) {
+            var boardDef = sim.boardDefinition.visual;
+            if (boardDef.image) {
+                boardDef.image = pxt.BrowserUtils.patchCdn(boardDef.image);
+                if (boardDef.outlineImage)
+                    boardDef.outlineImage = pxt.BrowserUtils.patchCdn(boardDef.outlineImage);
+            }
+        }
+        // patch icons in bundled packages
+        Object.keys(pxt.appTarget.bundledpkgs).forEach(function (pkgid) {
+            var res = pxt.appTarget.bundledpkgs[pkgid];
+            // path config before storing
+            var config = JSON.parse(res[pxt.CONFIG_NAME]);
+            if (config.icon)
+                config.icon = pxt.BrowserUtils.patchCdn(config.icon);
+            res[pxt.CONFIG_NAME] = JSON.stringify(config, null, 4);
+        });
     }
-    pxt.setAppTarget = setAppTarget;
+    function setAppTargetVariant(variant) {
+        pxt.appTargetVariant = variant;
+        pxt.appTarget = pxt.U.clone(savedAppTarget);
+        if (variant) {
+            if (pxt.appTarget.variants) {
+                var v = pxt.appTarget.variants[variant];
+                if (v) {
+                    pxt.U.jsonMergeFrom(pxt.appTarget, v);
+                    return;
+                }
+            }
+            pxt.U.userError(lf("Variant '{0}' not defined in pxtarget.json", variant));
+        }
+        patchAppTarget();
+    }
+    pxt.setAppTargetVariant = setAppTargetVariant;
     pxt.options = {};
     // general error reported
     pxt.debug = typeof console !== "undefined" && !!console.debug
@@ -1510,10 +1615,6 @@ var pxt;
             }
         }
     };
-    /**
-     * Track an event.
-     */
-    pxt.tickEvent = function (id) { };
     var activityEvents = {};
     var tickActivityDebounced = pxt.Util.debounce(function () {
         pxt.tickEvent("activity", activityEvents);
@@ -1536,7 +1637,6 @@ var pxt;
         var r = {
             relprefix: "/--",
             workerjs: "/worker.js",
-            tdworkerjs: "/tdworker.js",
             monacoworkerjs: "/monacoworker.js",
             pxtVersion: "local",
             pxtRelId: "",
@@ -1575,18 +1675,12 @@ var pxt;
         return pxt.U.lookup(pxt.appTarget.bundledpkgs || {}, id);
     }
     pxt.getEmbeddedScript = getEmbeddedScript;
-    var _targetConfig = undefined;
     var _targetConfigPromise = undefined;
     function targetConfigAsync() {
-        if (_targetConfig)
-            return Promise.resolve(_targetConfig);
-        if (!pxt.Cloud.isOnline())
-            return Promise.resolve(undefined);
-        if (_targetConfigPromise)
-            return _targetConfigPromise;
-        return _targetConfigPromise = pxt.Cloud.downloadTargetConfigAsync()
-            .then(function (js) { _targetConfig = js; }, function (err) { _targetConfig = undefined; })
-            .then(function () { return _targetConfig; });
+        if (!_targetConfigPromise)
+            _targetConfigPromise = pxt.Cloud.downloadTargetConfigAsync()
+                .then(function (js) { return js || {}; }, function (err) { return {}; });
+        return _targetConfigPromise;
     }
     pxt.targetConfigAsync = targetConfigAsync;
     function packagesConfigAsync() {
@@ -1624,6 +1718,12 @@ var pxt;
     var blocks;
     (function (blocks) {
         var THIS_NAME = "this";
+        // The JS Math functions supported in the blocks. The order of this array
+        // determines the order of the dropdown in the math_js_op block
+        blocks.MATH_FUNCTIONS = {
+            unary: ["sqrt", "sin", "cos", "tan", "ceil", "floor"],
+            binary: ["atan2"]
+        };
         // Information for blocks that compile to function calls but are defined by vanilla Blockly
         // and not dynamically by BlocklyLoader
         blocks.builtinFunctionInfo = {
@@ -1660,12 +1760,21 @@ var pxt;
             if (hasBlockDef && fn.attributes._expandedDef) {
                 defParameters.push.apply(defParameters, fn.attributes._expandedDef.parameters);
             }
+            var refMap = {};
+            var definitionsWithoutRefs = defParameters ? defParameters.filter(function (p) {
+                if (p.ref) {
+                    refMap[p.name] = p;
+                    return false;
+                }
+                return true;
+            }) : [];
             if (instance && hasBlockDef && defParameters.length) {
-                var defName = defParameters[0].name;
+                var def = refMap[THIS_NAME] || defParameters[0];
+                var defName = def.name;
                 res.thisParameter = {
                     actualName: THIS_NAME,
                     definitionName: defName,
-                    shadowBlockId: defParameters[0].shadowBlockId,
+                    shadowBlockId: def.shadowBlockId,
                     type: fn.namespace,
                     // Normally we pass ths actual parameter name, but the "this" parameter doesn't have one
                     fieldEditor: fieldEditor(defName, THIS_NAME),
@@ -1674,22 +1783,29 @@ var pxt;
                 };
             }
             if (fn.parameters) {
+                var defIndex_1 = (instance && !refMap[THIS_NAME]) ? 1 : 0;
                 fn.parameters.forEach(function (p, i) {
-                    var defIndex = instance ? i + 1 : i;
-                    if (!hasBlockDef || defIndex < defParameters.length) {
-                        var def = hasBlockDef && defParameters[defIndex];
+                    var def;
+                    if (refMap[p.name]) {
+                        def = refMap[p.name];
+                    }
+                    else if (defIndex_1 < definitionsWithoutRefs.length) {
+                        def = definitionsWithoutRefs[defIndex_1];
+                        ++defIndex_1;
+                    }
+                    if (def || !hasBlockDef) {
                         var range = undefined;
                         if (p.options && p.options["min"] && p.options["max"]) {
                             range = { min: p.options["min"].value, max: p.options["max"].value };
                         }
-                        var defName = def ? def.name : (bInfo ? bInfo.params[defIndex] : p.name);
+                        var defName = def ? def.name : (bInfo ? bInfo.params[defIndex_1++] : p.name);
                         res.parameters.push({
                             actualName: p.name,
                             type: p.type,
                             defaultValue: p.default,
                             definitionName: defName,
                             shadowBlockId: def && def.shadowBlockId,
-                            isOptional: defIndex >= optionalStart,
+                            isOptional: defParameters ? defParameters.indexOf(def) >= optionalStart : false,
                             fieldEditor: fieldEditor(defName, p.name),
                             fieldOptions: fieldOptions(defName, p.name),
                             shadowOptions: shadowOptions(defName, p.name),
@@ -1697,7 +1813,13 @@ var pxt;
                         });
                     }
                     if (p.handlerParameters) {
-                        p.handlerParameters.forEach(function (arg) { return res.handlerArgs.push(arg); });
+                        p.handlerParameters.forEach(function (arg) {
+                            res.handlerArgs.push({
+                                name: arg.name,
+                                type: arg.type,
+                                inBlockDef: defParameters ? defParameters.some(function (def) { return def.ref && def.name === arg.name; }) : false
+                            });
+                        });
                     }
                 });
             }
@@ -1761,6 +1883,17 @@ var pxt;
                         appendField: pxt.Util.lf("{id:while}do")
                     }
                 },
+                'pxt_controls_for': {
+                    name: pxt.Util.lf("a loop that repeats the number of times you say"),
+                    tooltip: pxt.Util.lf("Have the variable '{0}' take on the values from 0 to the end number, counting by 1, and do the specified blocks."),
+                    url: 'blocks/loops/for',
+                    category: 'loops',
+                    block: {
+                        message0: pxt.Util.lf("for %1 from 0 to %2"),
+                        variable: pxt.Util.lf("{id:var}index"),
+                        appendField: pxt.Util.lf("{id:for}do")
+                    }
+                },
                 'controls_simple_for': {
                     name: pxt.Util.lf("a loop that repeats the number of times you say"),
                     tooltip: pxt.Util.lf("Have the variable '{0}' take on the values from 0 to the end number, counting by 1, and do the specified blocks."),
@@ -1770,6 +1903,17 @@ var pxt;
                         message0: pxt.Util.lf("for %1 from 0 to %2"),
                         variable: pxt.Util.lf("{id:var}index"),
                         appendField: pxt.Util.lf("{id:for}do")
+                    }
+                },
+                'pxt_controls_for_of': {
+                    name: pxt.Util.lf("a loop that repeats for each value in an array"),
+                    tooltip: pxt.Util.lf("Have the variable '{0}' take the value of each item in the array one by one, and do the specified blocks."),
+                    url: 'blocks/loops/for-of',
+                    category: 'loops',
+                    block: {
+                        message0: pxt.Util.lf("for element %1 of %2"),
+                        variable: pxt.Util.lf("{id:var}value"),
+                        appendField: pxt.Util.lf("{id:for_of}do")
                     }
                 },
                 'controls_for_of': {
@@ -1808,7 +1952,7 @@ var pxt;
                     name: pxt.Util.lf("{id:block}number"),
                     url: '/blocks/math/random',
                     category: 'math',
-                    tooltip: (pxt.appTarget.compile && pxt.appTarget.compile.floatingPoint) ?
+                    tooltip: (pxt.appTarget && pxt.appTarget.compile && pxt.appTarget.compile.floatingPoint) ?
                         pxt.Util.lf("a decimal number") : pxt.Util.lf("an integer number")
                 },
                 'math_integer': {
@@ -1859,6 +2003,32 @@ var pxt;
                         MATH_MODULO_TITLE: pxt.Util.lf("remainder of %1 ÷ %2")
                     }
                 },
+                'math_js_op': {
+                    name: pxt.Util.lf("math function"),
+                    tooltip: {
+                        "sin": pxt.Util.lf("Returns the sine of the argument"),
+                        "cos": pxt.Util.lf("Returns the cosine of the argument"),
+                        "tan": pxt.Util.lf("Returns the tangent of the argument"),
+                        "sqrt": pxt.Util.lf("Returns the square root of the argument"),
+                        "ceil": pxt.Util.lf("Returns the lowest integer value greater than or equal to the argument"),
+                        "floor": pxt.Util.lf("Returns the highest integer value lesser than or equal to the argument"),
+                        "atan2": pxt.Util.lf("Returns the arctangent of the quotient of the two arguments"),
+                    },
+                    url: '/blocks/math',
+                    operators: {
+                        'OP': ["sqrt", "sin", "cos", "tan", "ceil", "floor", "atan2"]
+                    },
+                    category: 'math',
+                    block: {
+                        "sin": pxt.Util.lf("{id:op}sin"),
+                        "cos": pxt.Util.lf("{id:op}cos"),
+                        "tan": pxt.Util.lf("{id:op}tan"),
+                        "sqrt": pxt.Util.lf("{id:op}square root"),
+                        "ceil": pxt.Util.lf("{id:op}ceiling"),
+                        "floor": pxt.Util.lf("{id:op}floor"),
+                        "atan2": pxt.Util.lf("{id:op}atan2"),
+                    }
+                },
                 'variables_change': {
                     name: pxt.Util.lf("update the value of a number variable"),
                     tooltip: pxt.Util.lf("Changes the value of the variable by this amount"),
@@ -1879,6 +2049,15 @@ var pxt;
                     }
                 },
                 'variables_get': {
+                    name: pxt.Util.lf("get the value of a variable"),
+                    tooltip: pxt.Util.lf("Returns the value of this variable."),
+                    url: '/blocks/variables',
+                    category: 'variables',
+                    block: {
+                        VARIABLES_GET_CREATE_SET: pxt.Util.lf("Create 'set %1'")
+                    }
+                },
+                'variables_get_reporter': {
                     name: pxt.Util.lf("get the value of a variable"),
                     tooltip: pxt.Util.lf("Returns the value of this variable."),
                     url: '/blocks/variables',
@@ -1921,8 +2100,8 @@ var pxt;
                     category: 'arrays',
                     blockTextSearch: "LISTS_CREATE_WITH_INPUT_WITH",
                     block: {
-                        LISTS_CREATE_EMPTY_TITLE: pxt.Util.lf("create empty array"),
-                        LISTS_CREATE_WITH_INPUT_WITH: pxt.Util.lf("create array with"),
+                        LISTS_CREATE_EMPTY_TITLE: pxt.Util.lf("empty array"),
+                        LISTS_CREATE_WITH_INPUT_WITH: pxt.Util.lf("array of"),
                         LISTS_CREATE_WITH_CONTAINER_TITLE_ADD: pxt.Util.lf("array"),
                         LISTS_CREATE_WITH_ITEM_TITLE: pxt.Util.lf("value")
                     }
@@ -2181,7 +2360,7 @@ var pxt;
         BrowserUtils.isEpiphany = isEpiphany;
         function isTouchEnabled() {
             return typeof window !== "undefined" &&
-                ('ontouchstart' in window // works on most browsers 
+                ('ontouchstart' in window // works on most browsers
                     || navigator.maxTouchPoints > 0); // works on IE10/11 and Surface);
         }
         BrowserUtils.isTouchEnabled = isTouchEnabled;
@@ -2439,11 +2618,55 @@ var pxt;
             });
         }
         BrowserUtils.loadImageAsync = loadImageAsync;
-        function loadScriptAsync(url) {
+        function resolveCdnUrl(path) {
+            // don't expand full urls
+            if (/^https?:\/\//i.test(path))
+                return path;
+            var monacoPaths = window.MonacoPaths || {};
+            var blobPath = monacoPaths[path];
+            // find compute blob url
+            if (blobPath)
+                return blobPath;
+            // might have been exanded already
+            if (pxt.U.startsWith(path, pxt.webConfig.commitCdnUrl))
+                return path;
+            // append CDN
+            return pxt.webConfig.commitCdnUrl + path;
+        }
+        function loadStyleAsync(path, rtl) {
+            if (rtl)
+                path = "rtl" + path;
+            var id = "style-" + path;
+            if (document.getElementById(id))
+                return Promise.resolve();
+            var url = resolveCdnUrl(path);
+            var links = pxt.Util.toArray(document.head.getElementsByTagName("link"));
+            var link = links.filter(function (l) { return l.getAttribute("href") == url; })[0];
+            if (link) {
+                if (!link.id)
+                    link.id = id;
+                return Promise.resolve();
+            }
+            return new Promise(function (resolve, reject) {
+                var el = document.createElement("link");
+                el.href = url;
+                el.rel = "stylesheet";
+                el.type = "text/css";
+                el.id = id;
+                el.addEventListener('load', function () { return resolve(); });
+                el.addEventListener('error', function (e) { return reject(e); });
+                document.head.appendChild(el);
+            });
+        }
+        BrowserUtils.loadStyleAsync = loadStyleAsync;
+        function loadScriptAsync(path) {
+            var url = resolveCdnUrl(path);
+            pxt.debug("script: loading " + url);
             return new Promise(function (resolve, reject) {
                 var script = document.createElement('script');
                 script.type = 'text/javascript';
                 script.src = url;
+                script.async = true;
                 script.addEventListener('load', function () { return resolve(); });
                 script.addEventListener('error', function (e) { return reject(e); });
                 document.body.appendChild(script);
@@ -2468,23 +2691,37 @@ var pxt;
             });
         }
         BrowserUtils.loadAjaxAsync = loadAjaxAsync;
-        function initTheme() {
-            function patchCdn(url) {
-                if (!url)
-                    return url;
-                return url.replace("@cdnUrl@", pxt.getOnlineCdnUrl());
+        var loadBlocklyPromise;
+        function loadBlocklyAsync() {
+            if (!loadBlocklyPromise) {
+                pxt.debug("blockly: delay load");
+                var p = pxt.BrowserUtils.loadStyleAsync("blockly.css", ts.pxtc.Util.isUserLanguageRtl());
+                // js not loaded yet?
+                if (typeof Blockly === "undefined")
+                    p = p.then(function () { return pxt.BrowserUtils.loadScriptAsync("pxtblockly.js"); });
+                p = p.then(function () {
+                    pxt.debug("blockly: loaded");
+                });
+                loadBlocklyPromise = p;
             }
+            return loadBlocklyPromise;
+        }
+        BrowserUtils.loadBlocklyAsync = loadBlocklyAsync;
+        function patchCdn(url) {
+            if (!url || !pxt.getOnlineCdnUrl())
+                return url;
+            return url.replace("@cdnUrl@", pxt.getOnlineCdnUrl());
+        }
+        BrowserUtils.patchCdn = patchCdn;
+        function initTheme() {
             var theme = pxt.appTarget.appTheme;
             if (theme) {
                 if (theme.accentColor) {
                     var style = document.createElement('style');
                     style.type = 'text/css';
-                    style.innerHTML = ".ui.accent { color: " + theme.accentColor + "; }\n                .ui.inverted.menu .accent.active.item, .ui.inverted.accent.menu  { background-color: " + theme.accentColor + "; }";
+                    style.appendChild(document.createTextNode(".ui.accent { color: " + theme.accentColor + "; }\n                .ui.inverted.menu .accent.active.item, .ui.inverted.accent.menu  { background-color: " + theme.accentColor + "; }"));
                     document.getElementsByTagName('head')[0].appendChild(style);
                 }
-                theme.appLogo = patchCdn(theme.appLogo);
-                theme.cardLogo = patchCdn(theme.cardLogo);
-                theme.homeScreenHero = patchCdn(theme.homeScreenHero);
             }
             // RTL languages
             if (pxt.Util.isUserLanguageRtl()) {
@@ -2501,36 +2738,17 @@ var pxt;
                         semanticLink.setAttribute("href", semanticHref);
                     }
                 }
-                // replace blockly.css with rtlblockly.css
+                // replace blockly.css with rtlblockly.css if possible
                 var blocklyLink = links.filter(function (l) { return pxt.Util.endsWith(l.getAttribute("href"), "blockly.css"); })[0];
                 if (blocklyLink) {
                     var blocklyHref = blocklyLink.getAttribute("data-rtl");
                     if (blocklyHref) {
                         pxt.debug("swapping to " + blocklyHref);
                         blocklyLink.setAttribute("href", blocklyHref);
+                        blocklyLink.removeAttribute("data-rtl");
                     }
                 }
             }
-            var sim = pxt.appTarget.simulator;
-            if (sim
-                && sim.boardDefinition
-                && sim.boardDefinition.visual) {
-                var boardDef = sim.boardDefinition.visual;
-                if (boardDef.image) {
-                    boardDef.image = patchCdn(boardDef.image);
-                    if (boardDef.outlineImage)
-                        boardDef.outlineImage = patchCdn(boardDef.outlineImage);
-                }
-            }
-            // patch icons in bundled packages
-            Object.keys(pxt.appTarget.bundledpkgs).forEach(function (pkgid) {
-                var res = pxt.appTarget.bundledpkgs[pkgid];
-                // path config before storing
-                var config = JSON.parse(res[pxt.CONFIG_NAME]);
-                if (config.icon)
-                    config.icon = patchCdn(config.icon);
-                res[pxt.CONFIG_NAME] = JSON.stringify(config, null, 2);
-            });
         }
         BrowserUtils.initTheme = initTheme;
         /**
@@ -2559,32 +2777,41 @@ var pxt;
         commands.browserDownloadAsync = undefined;
         commands.saveOnlyAsync = undefined;
         commands.showUploadInstructionsAsync = undefined;
+        commands.saveProjectAsync = undefined;
     })(commands = pxt.commands || (pxt.commands = {}));
 })(pxt || (pxt = {}));
 /// <reference path="../localtypings/pxtarget.d.ts"/>
 var pxt;
 (function (pxt) {
+    var lzmaPromise;
     function getLzmaAsync() {
-        if (pxt.U.isNodeJS)
-            return Promise.resolve(require("lzma"));
-        else {
-            var lz = window.LZMA;
-            if (lz)
-                return Promise.resolve(lz);
-            var monacoPaths = window.MonacoPaths;
-            return pxt.BrowserUtils.loadScriptAsync(monacoPaths['lzma/lzma_worker-min.js'])
-                .then(function () { return window.LZMA; });
+        var lzmaPromise;
+        if (!lzmaPromise) {
+            if (pxt.U.isNodeJS)
+                lzmaPromise = Promise.resolve(require("lzma"));
+            else
+                lzmaPromise = Promise.resolve(window.LZMA);
+            lzmaPromise.then(function (res) {
+                if (!res)
+                    pxt.reportError('lzma', 'failed to load');
+                return res;
+            });
         }
+        return lzmaPromise;
     }
     function lzmaDecompressAsync(buf) {
         return getLzmaAsync()
             .then(function (lzma) { return new Promise(function (resolve, reject) {
             try {
                 lzma.decompress(buf, function (res, error) {
+                    if (error)
+                        pxt.debug("lzma decompression failed");
                     resolve(error ? undefined : res);
                 });
             }
             catch (e) {
+                if (e)
+                    pxt.debug("lzma decompression failed");
                 resolve(undefined);
             }
         }); });
@@ -2595,10 +2822,13 @@ var pxt;
             .then(function (lzma) { return new Promise(function (resolve, reject) {
             try {
                 lzma.compress(text, 7, function (res, error) {
+                    if (error)
+                        pxt.reportException(error);
                     resolve(error ? undefined : new Uint8Array(res));
                 });
             }
             catch (e) {
+                pxt.reportException(e);
                 resolve(undefined);
             }
         }); });
@@ -2717,6 +2947,7 @@ var pxt;
                     gittag: "none",
                     serviceId: "nocompile"
                 };
+            compileService = U.clone(compileService);
             var compile = pxt.appTarget.compile;
             if (!compile)
                 compile = {
@@ -2734,6 +2965,7 @@ var pxt;
                 sourcePath = "/pxtapp/";
             var pxtConfig = "// Configuration defines\n";
             var pointersInc = "\nPXT_SHIMS_BEGIN\n";
+            var abiInc = "";
             var includesInc = "#include \"pxt.h\"\n";
             var fullCS = "";
             var thisErrors = "";
@@ -2960,6 +3192,7 @@ var pxt;
                             return "boolean";
                         case "StringData*": return "string";
                         case "String": return "string";
+                        case "ImageLiteral_": return "string";
                         case "ImageLiteral": return "string";
                         case "Action": return "() => void";
                         case "TValue": return "any";
@@ -2988,6 +3221,8 @@ var pxt;
                         case "TValue": return "T";
                         case "bool": return "B";
                         case "double": return "D";
+                        case "ImageLiteral_":
+                            return "T";
                         default:
                             if (U.lookup(knownEnums, tp))
                                 return "I";
@@ -3036,6 +3271,19 @@ var pxt;
                         }
                         return;
                     }
+                    m = /^PXT_ABI\((\w+)\)/.exec(ln);
+                    if (m) {
+                        pointersInc += "PXT_FNPTR(::" + m[1] + "),\n";
+                        abiInc += "extern \"C\" void " + m[1] + "();\n";
+                        res.functions.push({
+                            name: m[1],
+                            argsFmt: "",
+                            value: 0
+                        });
+                    }
+                    m = /^#define\s+PXT_COMM_BASE\s+([0-9a-fx]+)/.exec(ln);
+                    if (m)
+                        res.commBase = parseInt(m[1]);
                     // function definition
                     m = /^\s*(\w+)([\*\&]*\s+[\*\&]*)(\w+)\s*\(([^\(\)]*)\)\s*(;\s*$|\{|$)/.exec(ln);
                     if (currAttrs && m) {
@@ -3451,6 +3699,8 @@ var pxt;
                 pxtConfig += "#define PXT_BOX_DEBUG 1\n";
                 pxtConfig += "#define PXT_MEMLEAK_DEBUG 1\n";
             }
+            if (compile.vtableShift)
+                pxtConfig += "#define PXT_VTABLE_SHIFT " + compile.vtableShift + "\n";
             if (compile.nativeType == pxtc.NATIVE_TYPE_AVRVM) {
                 pxtConfig += "#define PXT_VM 1\n";
             }
@@ -3458,7 +3708,7 @@ var pxt;
                 pxtConfig += "#define PXT_VM 0\n";
             }
             if (!isCSharp) {
-                res.generatedFiles[sourcePath + "pointers.cpp"] = includesInc + protos.finish() + pointersInc + "\nPXT_SHIMS_END\n";
+                res.generatedFiles[sourcePath + "pointers.cpp"] = includesInc + protos.finish() + abiInc + pointersInc + "\nPXT_SHIMS_END\n";
                 res.generatedFiles[sourcePath + "pxtconfig.h"] = pxtConfig;
                 if (isYotta)
                     res.generatedFiles["/config.json"] = JSON.stringify(configJson, null, 4) + "\n";
@@ -3499,18 +3749,6 @@ var pxt;
             return res;
         }
         cpp.getExtensionInfo = getExtensionInfo;
-        function fileReadAsArrayBufferAsync(f) {
-            if (!f)
-                return Promise.resolve(null);
-            else {
-                return new Promise(function (resolve, reject) {
-                    var reader = new FileReader();
-                    reader.onerror = function (ev) { return resolve(null); };
-                    reader.onload = function (ev) { return resolve(reader.result); };
-                    reader.readAsArrayBuffer(f);
-                });
-            }
-        }
         function fromUTF8Bytes(binstr) {
             if (!binstr)
                 return "";
@@ -3606,7 +3844,7 @@ var pxt;
         function unpackSourceFromHexFileAsync(file) {
             if (!file)
                 return undefined;
-            return fileReadAsArrayBufferAsync(file).then(function (data) {
+            return pxt.Util.fileReadAsBufferAsync(file).then(function (data) {
                 var a = new Uint8Array(data);
                 return unpackSourceFromHexAsync(a);
             });
@@ -3689,7 +3927,9 @@ var pxt;
                 var curr = pxt.getOnlineCdnUrl();
                 if (curr)
                     return (cdnUrlPromise = Promise.resolve(curr));
-                return (cdnUrlPromise = pxt.Cloud.privateGetAsync("clientconfig").then(function (r) { return r.primaryCdnUrl; }));
+                var forceLive = pxt.webConfig && pxt.webConfig.isStatic;
+                return (cdnUrlPromise = pxt.Cloud.privateGetAsync("clientconfig", forceLive)
+                    .then(function (r) { return r.primaryCdnUrl; }));
             }
         }
         function downloadHexInfoCoreAsync(extInfo) {
@@ -3741,6 +3981,27 @@ var pxt;
             });
         }
         function downloadHexInfoLocalAsync(extInfo) {
+            if (pxt.webConfig && pxt.webConfig.isStatic) {
+                return pxt.Util.requestAsync({
+                    url: pxt.webConfig.cdnUrl + "hexcache/" + extInfo.sha + ".hex"
+                })
+                    .then(function (resp) {
+                    if (resp.text) {
+                        var result = {
+                            enums: [],
+                            functions: [],
+                            hex: resp.text.split(/\r?\n/)
+                        };
+                        return Promise.resolve(result);
+                    }
+                    pxt.log("Hex info not found in bundled hex cache");
+                    return Promise.resolve();
+                })
+                    .catch(function (e) {
+                    pxt.log("Error fetching hex info from bundled hex cache");
+                    return Promise.resolve();
+                });
+            }
             if (!pxt.Cloud.localToken || !window || !pxt.Cloud.isLocalHost()) {
                 return Promise.resolve();
             }
@@ -3757,13 +4018,7 @@ var pxt;
             });
         }
         function apiAsync(path, data) {
-            return pxt.U.requestAsync({
-                url: "/api/" + path,
-                headers: { "Authorization": pxt.Cloud.localToken },
-                method: data ? "POST" : "GET",
-                data: data || undefined,
-                allowHttpErrors: true
-            }).then(function (r) { return r.json; });
+            return pxt.Cloud.localRequestAsync(path, data).then(function (r) { return r.json; });
         }
         function storeWithLimitAsync(host, idxkey, newkey, newval, maxLen) {
             if (maxLen === void 0) { maxLen = 10; }
@@ -3867,7 +4122,9 @@ var pxt;
                     buf = "";
                     var cnt = parseInt(nxt, 16);
                     while (cnt-- > 0) {
+                        /* tslint:disable:no-octal-literal */
                         buf += "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+                        /* tslint:enable:no-octal-literal */
                     }
                 }
                 else {
@@ -4172,13 +4429,12 @@ var pxt;
     })(crowdin = pxt.crowdin || (pxt.crowdin = {}));
 })(pxt || (pxt = {}));
 /// <reference path='../localtypings/pxtarget.d.ts' />
-/// <reference path="util.ts"/>
+/// <reference path="commonutil.ts"/>
 var pxt;
 (function (pxt) {
     var docs;
     (function (docs) {
         var U = pxtc.Util;
-        var lf = U.lf;
         var markedInstance;
         var stdboxes = {};
         var stdmacros = {};
@@ -4343,6 +4599,8 @@ var pxt;
                 };
                 if (m.path && !/^(https?:|\/)/.test(m.path))
                     return error("Invalid link: " + m.path);
+                if (/^\//.test(m.path) && d.versionPath)
+                    m.path = "/" + d.versionPath + m.path;
                 mparams["LINK"] = m.path;
                 if (tocPath.indexOf(m) >= 0) {
                     mparams["ACTIVE"] = 'active';
@@ -4400,13 +4658,15 @@ var pxt;
             }
             if (theme.boardName)
                 params["boardname"] = html2Quote(theme.boardName);
+            if (theme.boardNickname)
+                params["boardnickname"] = html2Quote(theme.boardNickname);
             if (theme.driveDisplayName)
                 params["drivename"] = html2Quote(theme.driveDisplayName);
             if (theme.homeUrl)
                 params["homeurl"] = html2Quote(theme.homeUrl);
             params["targetid"] = theme.id || "???";
             params["targetname"] = theme.name || "Microsoft MakeCode";
-            params["targetlogo"] = theme.docsLogo ? "<img aria-hidden=\"true\" role=\"presentation\" class=\"ui mini image\" src=\"" + U.toDataUri(theme.docsLogo) + "\" />" : "";
+            params["targetlogo"] = theme.docsLogo ? "<img aria-hidden=\"true\" role=\"presentation\" class=\"ui mini image\" src=\"" + theme.docsLogo + "\" />" : "";
             var ghURLs = d.ghEditURLs || [];
             if (ghURLs.length) {
                 var ghText = "<p style=\"margin-top:1em\">\n";
@@ -4510,14 +4770,15 @@ var pxt;
                 html: template,
                 theme: opts.theme,
                 filepath: opts.filepath,
+                versionPath: opts.versionPath,
                 ghEditURLs: opts.ghEditURLs,
                 params: pubinfo,
             };
             prepTemplate(d);
             if (!markedInstance) {
                 markedInstance = docs.requireMarked();
-                var renderer = new markedInstance.Renderer();
-                renderer.image = function (href, title, text) {
+                var renderer_1 = new markedInstance.Renderer();
+                renderer_1.image = function (href, title, text) {
                     var out = '<img class="ui centered image" src="' + href + '" alt="' + text + '"';
                     if (title) {
                         out += ' title="' + title + '"';
@@ -4525,13 +4786,22 @@ var pxt;
                     out += this.options.xhtml ? '/>' : '>';
                     return out;
                 };
-                renderer.listitem = function (text) {
+                renderer_1.listitem = function (text) {
                     var m = /^\s*\[( |x)\]/i.exec(text);
                     if (m)
                         return "<li class=\"" + (m[1] == ' ' ? 'unchecked' : 'checked') + "\">" + text.slice(m[0].length) + '</li>\n';
                     return '<li>' + text + '</li>\n';
                 };
-                renderer.heading = function (text, level, raw) {
+                var linkRenderer_1 = renderer_1.link;
+                renderer_1.link = function (href, title, text) {
+                    var relative = href.indexOf('/') == 0;
+                    var target = !relative ? '_blank' : '';
+                    if (relative && d.versionPath)
+                        href = "/" + d.versionPath + href;
+                    var html = linkRenderer_1.call(renderer_1, href, title, text);
+                    return html.replace(/^<a /, "<a " + (target ? "target=\"" + target + "\"" : '') + " rel=\"nofollow noopener\" ");
+                };
+                renderer_1.heading = function (text, level, raw) {
                     var m = /(.*)#([\w\-]+)\s*$/.exec(text);
                     var id = "";
                     if (m) {
@@ -4544,7 +4814,7 @@ var pxt;
                     return "<h" + level + " id=\"" + this.options.headerPrefix + id + "\">" + text + "</h" + level + ">";
                 };
                 markedInstance.setOptions({
-                    renderer: renderer,
+                    renderer: renderer_1,
                     gfm: true,
                     tables: true,
                     breaks: false,
@@ -4578,7 +4848,12 @@ var pxt;
                 return f;
             });
             // replace pre-template in markdown
-            markdown = markdown.replace(/@([a-z]+)@/ig, function (m, param) { return pubinfo[param] || 'unknown macro'; });
+            markdown = markdown.replace(/@([a-z]+)@/ig, function (m, param) {
+                var macro = pubinfo[param];
+                if (!macro && opts.throwOnError)
+                    U.userError("unknown macro " + param);
+                return macro || 'unknown macro';
+            });
             var html = markedInstance(markdown);
             // support for breaks which somehow don't work out of the box
             html = html.replace(/&lt;br\s*\/&gt;/ig, "<br/>");
@@ -4597,8 +4872,11 @@ var pxt;
                     }
                     else {
                         expansion = U.lookup(d.macros, cmd);
-                        if (expansion == null)
+                        if (expansion == null) {
+                            if (opts.throwOnError)
+                                U.userError("Unknown command: @" + cmd);
                             return error("Unknown command: @" + cmd);
+                        }
                     }
                     var ivars = {
                         ARGS: args,
@@ -4619,7 +4897,9 @@ var pxt;
                         return parts[0].replace("@ARGS@", args);
                     }
                     else {
-                        return error("Unknown box: ~" + cmd);
+                        if (opts.throwOnError)
+                            U.userError("Unknown box: ~ " + cmd);
+                        return error("Unknown box: ~ " + cmd);
                     }
                 }
             });
@@ -4981,6 +5261,93 @@ var pxt;
 })(pxt || (pxt = {}));
 var pxt;
 (function (pxt) {
+    var gallery;
+    (function (gallery) {
+        function parseExampleMarkdown(name, md) {
+            if (!md)
+                return undefined;
+            var m = /```(blocks?|typescript)\s+((.|\s)+?)\s*```/i.exec(md);
+            if (!m)
+                return undefined;
+            var pm = /```package\s+((.|\s)+?)\s*```/i.exec(md);
+            var dependencies = undefined;
+            if (pm) {
+                dependencies = {};
+                pm[1].split('\n').map(function (s) { return s.replace(/\s*/g, ''); }).filter(function (s) { return !!s; })
+                    .map(function (l) { return l.split('='); })
+                    .forEach(function (kv) { return dependencies[kv[0]] = kv[1] || "*"; });
+            }
+            var src = m[2];
+            // extract text between first sample and title
+            var comment = md.substring(0, m.index)
+                .replace(/^(#+.*|\s*)$/igm, '')
+                .trim();
+            if (comment) {
+                src = "/**\n" + comment.split('\n').map(function (line) { return '* ' + line; }).join('\n') + "\n*/\n" + src;
+            }
+            return {
+                name: name,
+                filesOverride: {
+                    "main.blocks": "<xml xmlns=\"http://www.w3.org/1999/xhtml\"></xml>",
+                    "main.ts": src
+                },
+                dependencies: dependencies
+            };
+        }
+        gallery.parseExampleMarkdown = parseExampleMarkdown;
+        function parseGalleryMardown(md) {
+            if (!md)
+                return [];
+            // second level titles are categories
+            // ## foo bar
+            // fenced code ```cards are sections of cards
+            var galleries = [];
+            var incard = false;
+            var name = undefined;
+            var cards = "";
+            md.split(/\r?\n/).forEach(function (line) {
+                // new category
+                if (/^##/.test(line)) {
+                    name = line.substr(2).trim();
+                }
+                else if (/^```codecard$/.test(line)) {
+                    incard = true;
+                }
+                else if (/^```$/.test(line)) {
+                    incard = false;
+                    if (name && cards) {
+                        try {
+                            var cardsJSON = JSON.parse(cards);
+                            if (cardsJSON && cardsJSON.length > 0)
+                                galleries.push({ name: name, cards: cardsJSON });
+                        }
+                        catch (e) {
+                            pxt.log('invalid card format in gallery');
+                        }
+                    }
+                    cards = "";
+                    name = undefined;
+                }
+                else if (incard)
+                    cards += line + '\n';
+            });
+            return galleries;
+        }
+        gallery.parseGalleryMardown = parseGalleryMardown;
+        function loadGalleryAsync(name) {
+            return pxt.Cloud.downloadMarkdownAsync(name, pxt.Util.userLanguage(), pxt.Util.localizeLive)
+                .then(function (md) { return parseGalleryMardown(md); });
+        }
+        gallery.loadGalleryAsync = loadGalleryAsync;
+        function loadExampleAsync(name, path) {
+            return pxt.Cloud.downloadMarkdownAsync(path, pxt.Util.userLanguage(), pxt.Util.localizeLive)
+                .then(function (md) { return parseExampleMarkdown(name, md); });
+        }
+        gallery.loadExampleAsync = loadExampleAsync;
+    })(gallery = pxt.gallery || (pxt.gallery = {}));
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
     var github;
     (function (github) {
         function useProxy() {
@@ -4991,6 +5358,92 @@ var pxt;
             return true;
         }
         github.useProxy = useProxy;
+        var MemoryGithubDb = /** @class */ (function () {
+            function MemoryGithubDb() {
+                this.configs = {};
+                this.packages = {};
+            }
+            MemoryGithubDb.prototype.proxyLoadPackageAsync = function (repopath, tag) {
+                var _this = this;
+                // cache lookup
+                var key = repopath + "/" + tag;
+                var res = this.packages[key];
+                if (res) {
+                    pxt.debug("github cache " + repopath + "/" + tag + "/text");
+                    return Promise.resolve(res);
+                }
+                // load and cache
+                return pxt.U.httpGetJsonAsync(pxt.Cloud.apiRoot + "gh/" + repopath + "/" + tag + "/text")
+                    .then(function (v) { return _this.packages[key] = { files: v }; });
+            };
+            MemoryGithubDb.prototype.loadConfigAsync = function (repopath, tag) {
+                var _this = this;
+                if (!tag)
+                    tag = "master";
+                // cache lookup
+                var key = repopath + "/" + tag;
+                var res = this.configs[key];
+                if (res) {
+                    pxt.debug("github cache " + repopath + "/" + tag + "/config");
+                    return Promise.resolve(pxt.U.clone(res));
+                }
+                var cacheConfig = function (v) {
+                    var cfg = JSON.parse(v);
+                    _this.configs[key] = cfg;
+                    return pxt.U.clone(cfg);
+                };
+                // download and cache
+                if (useProxy()) {
+                    // this is a bit wasteful, we just need pxt.json and download everything
+                    return this.proxyLoadPackageAsync(repopath, tag)
+                        .then(function (v) { return cacheConfig(v.files[pxt.CONFIG_NAME]); });
+                }
+                var url = "https://raw.githubusercontent.com/" + repopath + "/" + tag + "/" + pxt.CONFIG_NAME;
+                return pxt.U.httpGetTextAsync(url)
+                    .then(function (cfg) { return cacheConfig(cfg); });
+            };
+            MemoryGithubDb.prototype.loadPackageAsync = function (repopath, tag) {
+                var _this = this;
+                if (!tag)
+                    tag = "master";
+                if (useProxy())
+                    return this.proxyLoadPackageAsync(repopath, tag).then(function (v) { return pxt.U.clone(v); });
+                return tagToShaAsync(repopath, tag)
+                    .then(function (sha) {
+                    // cache lookup
+                    var key = repopath + "/" + sha;
+                    var res = _this.packages[key];
+                    if (res) {
+                        pxt.debug("github cache " + repopath + "/" + tag + "/text");
+                        return Promise.resolve(pxt.U.clone(res));
+                    }
+                    // load and cache
+                    var pref = "https://raw.githubusercontent.com/" + repopath + "/" + sha + "/";
+                    pxt.log("Downloading " + repopath + "/" + tag + " -> " + sha);
+                    return pxt.U.httpGetTextAsync(pref + pxt.CONFIG_NAME)
+                        .then(function (pkg) {
+                        var current = {
+                            files: {}
+                        };
+                        current.files[pxt.CONFIG_NAME] = pkg;
+                        var cfg = JSON.parse(pkg);
+                        return Promise.map(cfg.files.concat(cfg.testFiles || []), function (fn) { return pxt.U.httpGetTextAsync(pref + fn)
+                            .then(function (text) {
+                            current.files[fn] = text;
+                        }); })
+                            .then(function () {
+                            // cache!
+                            _this.packages[key] = current;
+                            return pxt.U.clone(current);
+                        });
+                    });
+                });
+            };
+            return MemoryGithubDb;
+        }());
+        github.MemoryGithubDb = MemoryGithubDb;
+        // overriden by client
+        github.db = new MemoryGithubDb();
         function listRefsAsync(repopath, namespace) {
             if (namespace === void 0) { namespace = "tags"; }
             return listRefsExtAsync(repopath, namespace)
@@ -5000,7 +5453,7 @@ var pxt;
         function listRefsExtAsync(repopath, namespace) {
             if (namespace === void 0) { namespace = "tags"; }
             var head = null;
-            var fetch = !useProxy ?
+            var fetch = !useProxy() ?
                 pxt.U.httpGetJsonAsync("https://api.github.com/repos/" + repopath + "/git/refs/" + namespace + "/?per_page=100") :
                 pxt.U.httpGetJsonAsync(pxt.Cloud.apiRoot + "gh/" + repopath + "/refs")
                     .then(function (r) {
@@ -5050,18 +5503,10 @@ var pxt;
         }
         function pkgConfigAsync(repopath, tag) {
             if (tag === void 0) { tag = "master"; }
-            if (useProxy()) {
-                // this is a bit wasteful, we just need pxt.json and download everything
-                return pxt.U.httpGetJsonAsync(pxt.Cloud.apiRoot + "gh/" + repopath + "/" + tag + "/text")
-                    .then(function (v) { return JSON.parse(v[pxt.CONFIG_NAME]); });
-            }
-            var url = "https://raw.githubusercontent.com/" + repopath + "/" + tag + "/" + pxt.CONFIG_NAME;
-            return pxt.U.httpGetTextAsync(url)
-                .then(function (v) { return JSON.parse(v); });
+            return github.db.loadConfigAsync(repopath, tag);
         }
         github.pkgConfigAsync = pkgConfigAsync;
-        function downloadPackageAsync(repoWithTag, config, current) {
-            if (current === void 0) { current = null; }
+        function downloadPackageAsync(repoWithTag, config) {
             var p = parseRepoId(repoWithTag);
             if (!p) {
                 pxt.log('Unknown github syntax');
@@ -5072,42 +5517,7 @@ var pxt;
                 pxt.log('Github repo is banned');
                 return Promise.resolve(undefined);
             }
-            if (!current)
-                current = { sha: "", files: {} };
-            if (useProxy()) {
-                if (!p.tag)
-                    p.tag = "master";
-                return pxt.U.httpGetJsonAsync(pxt.Cloud.apiRoot + "gh/" + p.fullName + "/" + p.tag + "/text")
-                    .then(function (v) {
-                    current.sha = p.tag;
-                    current.files = v;
-                    return current;
-                });
-            }
-            return tagToShaAsync(p.fullName, p.tag)
-                .then(function (sha) {
-                var pref = "https://raw.githubusercontent.com/" + p.fullName + "/" + sha + "/";
-                if (current.sha === sha)
-                    return Promise.resolve(current);
-                else {
-                    pxt.log("Downloading " + repoWithTag + " -> " + sha);
-                    return pxt.U.httpGetTextAsync(pref + pxt.CONFIG_NAME)
-                        .then(function (pkg) {
-                        current.files = {};
-                        current.sha = "";
-                        current.files[pxt.CONFIG_NAME] = pkg;
-                        var cfg = JSON.parse(pkg);
-                        return Promise.map(cfg.files.concat(cfg.testFiles || []), function (fn) { return pxt.U.httpGetTextAsync(pref + fn)
-                            .then(function (text) {
-                            current.files[fn] = text;
-                        }); })
-                            .then(function () {
-                            current.sha = sha;
-                            return current;
-                        });
-                    });
-                }
-            });
+            return github.db.loadPackageAsync(p.fullName, p.tag);
         }
         github.downloadPackageAsync = downloadPackageAsync;
         var GitRepoStatus;
@@ -5119,9 +5529,13 @@ var pxt;
         function repoIconUrl(repo) {
             if (repo.status != GitRepoStatus.Approved)
                 return undefined;
-            return pxt.Cloud.apiRoot + ("gh/" + repo.fullName + "/icon");
+            return mkRepoIconUrl(repo);
         }
         github.repoIconUrl = repoIconUrl;
+        function mkRepoIconUrl(repo) {
+            return pxt.Cloud.apiRoot + ("gh/" + repo.fullName + "/icon");
+        }
+        github.mkRepoIconUrl = mkRepoIconUrl;
         function mkRepo(r, config, tag) {
             if (!r)
                 return undefined;
@@ -5221,7 +5635,8 @@ var pxt;
             return pxt.U.httpGetJsonAsync("https://api.github.com/search/repositories?q=" + encodeURIComponent(query))
                 .then(function (rs) {
                 return rs.items.map(function (item) { return mkRepo(item, config); })
-                    .filter(function (r) { return r.status == GitRepoStatus.Approved || (config.allowUnapproved && r.status == GitRepoStatus.Unknown); });
+                    .filter(function (r) { return r.status == GitRepoStatus.Approved || (config.allowUnapproved && r.status == GitRepoStatus.Unknown); })
+                    .filter(function (r) { return !pxt.appTarget.appTheme.githubUrl || "https://github.com/" + r.fullName != pxt.appTarget.appTheme.githubUrl.toLowerCase(); });
             })
                 .catch(function (err) { return []; }); // offline
         }
@@ -5277,6 +5692,8 @@ var pxt;
                     .then(function (refsRes) {
                     var tags = Object.keys(refsRes.refs);
                     tags.reverse();
+                    // only look for vxx.xx.xx tags
+                    tags = tags.filter(function (t) { return /^v\d+(\.\d+(\.\d+)?)?$/i.test(t); });
                     if (tags[0])
                         return Promise.resolve(tags[0]);
                     else
@@ -6395,11 +6812,33 @@ var pxt;
             }
             Helpers.mkWhile = mkWhile;
             function mkComment(text) {
-                return mkStmt(mkText("// " + text));
+                return mkText("// " + text);
             }
             Helpers.mkComment = mkComment;
+            function mkMultiComment(text) {
+                var group = [
+                    mkText("/**"),
+                    mkNewLine()
+                ];
+                text.split("\n").forEach(function (c, i, arr) {
+                    if (c) {
+                        group.push(mkText(" * " + c));
+                        group.push(mkNewLine());
+                        // Add an extra line so we can convert it back to new lines
+                        if (i < arr.length - 1) {
+                            group.push(mkText(" * "));
+                            group.push(mkNewLine());
+                        }
+                    }
+                });
+                return mkGroup(group.concat([
+                    mkText(" */"),
+                    mkNewLine()
+                ]));
+            }
+            Helpers.mkMultiComment = mkMultiComment;
             function mkAssign(x, e) {
-                return mkStmt(mkSimpleCall("=", [x, e]));
+                return mkSimpleCall("=", [x, e]);
             }
             Helpers.mkAssign = mkAssign;
             function mkParenthesizedExpression(expression) {
@@ -6606,7 +7045,6 @@ var pxt;
 /// <reference path="util.ts"/>
 var pxt;
 (function (pxt) {
-    var lf = pxt.U.lf;
     var Package = /** @class */ (function () {
         function Package(id, _verspec, parent, addedBy) {
             this.id = id;
@@ -6614,12 +7052,13 @@ var pxt;
             this.parent = parent;
             this.level = -1;
             this.isLoaded = false;
+            this.ignoreTests = false;
             if (addedBy) {
                 this.level = addedBy.level + 1;
             }
             this.addedBy = [addedBy];
         }
-        Package.getConfigAsync = function (id, fullVers) {
+        Package.getConfigAsync = function (pkgTargetVersion, id, fullVers) {
             return Promise.resolve().then(function () {
                 if (pxt.github.isGithubId(fullVers)) {
                     var repoInfo_1 = pxt.github.parseRepoId(fullVers);
@@ -6630,7 +7069,9 @@ var pxt;
                 else {
                     // If it's not from GH, assume it's a bundled package
                     // TODO: Add logic for shared packages if we enable that
-                    return JSON.parse(pxt.appTarget.bundledpkgs[Package.upgradePackageReference(id, fullVers)][pxt.CONFIG_NAME]);
+                    var updatedRef = pxt.patching.upgradePackageReference(pkgTargetVersion, id, fullVers);
+                    var bundledPkg = pxt.appTarget.bundledpkgs[updatedRef];
+                    return JSON.parse(bundledPkg[pxt.CONFIG_NAME]);
                 }
             });
         };
@@ -6638,23 +7079,6 @@ var pxt;
             var pkgs = pxt.appTarget.bundledpkgs;
             return Object.keys(pkgs).map(function (id) { return JSON.parse(pkgs[id][pxt.CONFIG_NAME]); })
                 .filter(function (cfg) { return !!cfg; });
-        };
-        Package.upgradePackageReference = function (pkg, val) {
-            if (val != "*")
-                return pkg;
-            var upgrades = pxt.appTarget.compile ? pxt.appTarget.compile.upgrades : undefined;
-            var newPackage = pkg;
-            if (upgrades) {
-                upgrades.filter(function (rule) { return rule.type == "package"; })
-                    .forEach(function (rule) {
-                    for (var match in rule.map) {
-                        if (newPackage == match) {
-                            newPackage = rule.map[match];
-                        }
-                    }
-                });
-            }
-            return newPackage;
         };
         Package.prototype.version = function () {
             return this.resolvedVersion || this._verspec;
@@ -6671,6 +7095,13 @@ var pxt;
             if (p)
                 return this.version().slice(p.length + 1);
             return this.version();
+        };
+        Package.prototype.targetVersion = function () {
+            return (this.parent && this.parent != this)
+                ? this.parent.targetVersion()
+                : this.config.targetVersions
+                    ? this.config.targetVersions.target
+                    : undefined;
         };
         Package.prototype.commonDownloadAsync = function () {
             var _this = this;
@@ -6786,17 +7217,17 @@ var pxt;
                 pxt.U.userError("Invalid package name: " + this.config.name);
             if (this.config.targetVersions
                 && this.config.targetVersions.target
-                && pxt.semver.strcmp(this.config.targetVersions.target, pxt.appTarget.versions.target) > 0)
-                pxt.U.userError(lf("Package {0} requires target version {1} (you are running {2})", this.config.name, this.config.targetVersions.target, pxt.appTarget.versions.target));
+                && pxt.semver.majorCmp(this.config.targetVersions.target, pxt.appTarget.versions.target) > 0)
+                pxt.U.userError(lf("{0} requires target version {1} (you are running {2})", this.config.name, this.config.targetVersions.target, pxt.appTarget.versions.target));
         };
         Package.prototype.isPackageInUse = function (pkgId, ts) {
             if (ts === void 0) { ts = this.readFile("main.ts"); }
             // Build the RegExp that will determine whether the dependency is in use. Try to use upgrade rules,
             // otherwise fallback to the package's name
             var regex = null;
-            var upgrades = pxt.appTarget.compile ? pxt.appTarget.compile.upgrades : undefined;
+            var upgrades = pxt.patching.computePatches(this.targetVersion(), "missingPackage");
             if (upgrades) {
-                upgrades.filter(function (rule) { return rule.type == "missingPackage"; }).forEach(function (rule) {
+                upgrades.forEach(function (rule) {
                     Object.keys(rule.map).forEach(function (match) {
                         if (rule.map[match] === pkgId) {
                             regex = new RegExp(match, "g");
@@ -6810,12 +7241,11 @@ var pxt;
             return regex.test(ts);
         };
         Package.prototype.getMissingPackages = function (config, ts) {
-            var upgrades = pxt.appTarget.compile ? pxt.appTarget.compile.upgrades : undefined;
+            var upgrades = pxt.patching.computePatches(this.targetVersion(), "missingPackage");
             var missing = {};
             if (ts && upgrades)
-                upgrades.filter(function (rule) { return rule.type == "missingPackage"; })
-                    .forEach(function (rule) {
-                    var _loop_5 = function (match) {
+                upgrades.forEach(function (rule) {
+                    Object.keys(rule.map).forEach(function (match) {
                         var regex = new RegExp(match, 'g');
                         var pkg = rule.map[match];
                         ts.replace(regex, function (m) {
@@ -6824,10 +7254,7 @@ var pxt;
                             }
                             return "";
                         });
-                    };
-                    for (var match in rule.map) {
-                        _loop_5(match);
-                    }
+                    });
                 });
             return missing;
         };
@@ -6843,7 +7270,7 @@ var pxt;
                 .then(function () {
                 // Get the package config if it's not already provided
                 if (typeof pkgOrId === "string") {
-                    return Package.getConfigAsync(pkgOrId, version);
+                    return Package.getConfigAsync(_this.targetVersion(), pkgOrId, version);
                 }
                 else {
                     return Promise.resolve(pkgOrId);
@@ -6933,32 +7360,32 @@ var pxt;
                 return conflicts;
             });
         };
-        Package.prototype.upgradeAPI = function (fileContents) {
-            var upgrades = pxt.appTarget.compile ? pxt.appTarget.compile.upgrades : undefined;
-            var updatedContents = fileContents;
-            if (upgrades) {
-                upgrades.filter(function (rule) { return rule.type == "api"; })
-                    .forEach(function (rule) {
-                    for (var match in rule.map) {
-                        var regex = new RegExp(match, 'g');
-                        updatedContents = updatedContents.replace(regex, rule.map[match]);
-                    }
-                });
+        Package.prototype.upgradeFile = function (fn, cont) {
+            var updatedCont = pxt.patching.patchJavaScript(this.targetVersion(), cont);
+            if (updatedCont != cont) {
+                // save file (force write)
+                pxt.debug("patching javascript in " + fn + " (size=" + cont.length + ")...");
+                this.host().writeFile(this, fn, updatedCont, true);
             }
-            return updatedContents;
+            return updatedCont;
         };
-        Package.prototype.parseConfig = function (cfgSrc) {
+        Package.prototype.parseConfig = function (cfgSrc, targetVersion) {
             var cfg = JSON.parse(cfgSrc);
             this.config = cfg;
             var currentConfig = JSON.stringify(this.config);
             for (var dep in this.config.dependencies) {
-                var value = Package.upgradePackageReference(dep, this.config.dependencies[dep]);
+                var value = pxt.patching.upgradePackageReference(this.targetVersion(), dep, this.config.dependencies[dep]);
                 if (value != dep) {
                     delete this.config.dependencies[dep];
                     if (value) {
                         this.config.dependencies[value] = "*";
                     }
                 }
+            }
+            if (targetVersion) {
+                this.config.targetVersions = {
+                    target: targetVersion
+                };
             }
             if (JSON.stringify(this.config) != currentConfig) {
                 this.saveConfig();
@@ -6975,8 +7402,10 @@ var pxt;
             // no core package? add the first one
             if (corePackages.length == 0) {
                 var allCorePkgs = pxt.Package.corePackages();
+                /* tslint:disable:no-unused-expression TODO(tslint): */
                 if (allCorePkgs.length)
                     this.config.dependencies[allCorePkgs[0].name];
+                /* tslint:enable:no-unused-expression */
             }
             else if (corePackages.length > 1) {
                 // keep last package
@@ -6987,7 +7416,17 @@ var pxt;
                 });
             }
         };
-        Package.prototype.loadAsync = function (isInstall) {
+        Package.prototype.dependencies = function () {
+            if (!this.config)
+                return {};
+            var dependencies = pxt.Util.clone(this.config.dependencies || {});
+            // add test dependencies if nedeed
+            if (this.level == 0 && this.config.testDependencies) {
+                pxt.Util.jsonMergeFrom(dependencies, this.config.testDependencies);
+            }
+            return dependencies;
+        };
+        Package.prototype.loadAsync = function (isInstall, targetVersion) {
             var _this = this;
             if (isInstall === void 0) { isInstall = false; }
             if (this.isLoaded)
@@ -7004,12 +7443,19 @@ var pxt;
             }
             if (isInstall)
                 initPromise = initPromise.then(function () { return _this.downloadAsync(); });
+            if (isInstall && this.level == 0)
+                initPromise = initPromise.then(function () {
+                    pxt.debug("upgrading files, target version " + _this.targetVersion());
+                    _this.getFiles().filter(function (fn) { return /\.ts$/.test(fn); })
+                        .forEach(function (file) { return _this.upgradeFile(file, _this.readFile(file)); });
+                });
             if (pxt.appTarget.simulator && pxt.appTarget.simulator.dynamicBoardDefinition) {
                 if (this.level == 0)
                     initPromise = initPromise.then(function () { return _this.patchCorePackage(); });
                 initPromise = initPromise.then(function () {
                     if (_this.config.files.indexOf("board.json") < 0)
                         return;
+                    pxt.setAppTargetVariant(_this.config.compileServiceVariant);
                     var def = pxt.appTarget.simulator.boardDefinition = JSON.parse(_this.readFile("board.json"));
                     def.id = _this.config.name;
                     pxt.appTarget.appTheme.boardName = def.boardName || lf("board");
@@ -7033,8 +7479,8 @@ var pxt;
                     }
                 });
             }
-            var loadDepsRecursive = function (dependencies) {
-                return pxt.U.mapStringMapAsync(dependencies, function (id, ver) {
+            var loadDepsRecursive = function (deps) {
+                return pxt.U.mapStringMapAsync(deps, function (id, ver) {
                     var mod = _this.resolveDep(id);
                     ver = ver || "*";
                     if (mod) {
@@ -7047,13 +7493,21 @@ var pxt;
                     else {
                         mod = new Package(id, ver, _this.parent, _this);
                         _this.parent.deps[id] = mod;
+                        // we can have "core---nrf52" to be used instead of "core" in other packages
+                        _this.parent.deps[id.replace(/---.*/, "")] = mod;
                         return mod.loadAsync(isInstall);
                     }
                 });
             };
             return initPromise
-                .then(function () { return loadDepsRecursive(_this.config.dependencies); })
+                .then(function () { return loadDepsRecursive(_this.dependencies()); })
                 .then(function () {
+                // get paletter config loading deps, so the more higher level packages take precedence
+                if (_this.config.palette && pxt.appTarget.runtime)
+                    pxt.appTarget.runtime.palette = pxt.U.clone(_this.config.palette);
+                // get screen size loading deps, so the more higher level packages take precedence
+                if (_this.config.screenSize && pxt.appTarget.runtime)
+                    pxt.appTarget.runtime.screenSize = pxt.U.clone(_this.config.screenSize);
                 if (_this.level === 0) {
                     // Check for missing packages. We need to add them 1 by 1 in case they conflict with eachother.
                     var mainTs = _this.readFile("main.ts");
@@ -7095,14 +7549,14 @@ var pxt;
                 .then(function () { return null; });
         };
         Package.prototype.getFiles = function () {
-            if (this.level == 0)
+            if (this.level == 0 && !this.ignoreTests)
                 return this.config.files.concat(this.config.testFiles || []);
             else
                 return this.config.files.slice(0);
         };
         Package.prototype.addSnapshot = function (files, exts) {
             if (exts === void 0) { exts = [""]; }
-            var _loop_6 = function (fn) {
+            var _loop_5 = function (fn) {
                 if (exts.some(function (e) { return pxt.U.endsWith(fn, e); })) {
                     files[this_1.id + "/" + fn] = this_1.readFile(fn);
                 }
@@ -7110,7 +7564,7 @@ var pxt;
             var this_1 = this;
             for (var _i = 0, _a = this.getFiles(); _i < _a.length; _i++) {
                 var fn = _a[_i];
-                _loop_6(fn);
+                _loop_5(fn);
             }
             files[this.id + "/" + pxt.CONFIG_NAME] = this.readFile(pxt.CONFIG_NAME);
         };
@@ -7128,24 +7582,40 @@ var pxt;
                 pxt.log("loading live translations for " + this.id);
                 var code_1 = pxt.Util.userLanguage();
                 return Promise.all(filenames.map(function (fn) { return pxt.Util.downloadLiveTranslationsAsync(code_1, targetId + "/" + fn + "-strings.json", theme.crowdinBranch)
-                    .then(function (tr) { return pxt.Util.jsonMergeFrom(r, tr); })
-                    .catch(function (e) { return pxt.log("error while downloading " + targetId + "/" + fn + "-strings.json"); }); })).then(function () { return r; });
+                    .then(function (tr) {
+                    if (tr && Object.keys(tr).length) {
+                        pxt.Util.jsonMergeFrom(r, tr);
+                    }
+                    else {
+                        pxt.tickEvent("translations.livetranslationsfailed", { "filename": fn });
+                        pxt.Util.jsonMergeFrom(r, _this.bundledStringsForFile(lang, fn));
+                    }
+                })
+                    .catch(function (e) {
+                    pxt.tickEvent("translations.livetranslationsfailed", { "filename": fn });
+                    pxt.log("error while downloading " + targetId + "/" + fn + "-strings.json");
+                    pxt.Util.jsonMergeFrom(r, _this.bundledStringsForFile(lang, fn));
+                }); })).then(function () { return r; });
             }
             else {
-                var files_1 = this.config.files;
                 filenames.map(function (name) {
-                    var fn = "_locales/" + lang.toLowerCase() + "/" + name + "-strings.json";
-                    if (files_1.indexOf(fn) > -1)
-                        return JSON.parse(_this.readFile(fn));
-                    if (lang.length > 2) {
-                        fn = "_locales/" + lang.substring(0, 2).toLowerCase() + "/" + name + "-strings.json";
-                        if (files_1.indexOf(fn) > -1)
-                            return JSON.parse(_this.readFile(fn));
-                    }
-                    return undefined;
+                    return _this.bundledStringsForFile(lang, name);
                 }).filter(function (d) { return !!d; }).forEach(function (d) { return pxt.Util.jsonMergeFrom(r, d); });
                 return Promise.resolve(r);
             }
+        };
+        Package.prototype.bundledStringsForFile = function (lang, filename) {
+            var r = {};
+            var files = this.config.files;
+            var fn = "_locales/" + lang.toLowerCase() + "/" + filename + "-strings.json";
+            if (files.indexOf(fn) > -1)
+                r = JSON.parse(this.readFile(fn));
+            if (lang.length > 2) {
+                fn = "_locales/" + lang.substring(0, 2).toLowerCase() + "/" + filename + "-strings.json";
+                if (files.indexOf(fn) > -1)
+                    r = JSON.parse(this.readFile(fn));
+            }
+            return r;
         };
         return Package;
     }());
@@ -7162,8 +7632,8 @@ var pxt;
             _this.deps[_this.id] = _this;
             return _this;
         }
-        MainPackage.prototype.installAllAsync = function () {
-            return this.loadAsync(true);
+        MainPackage.prototype.installAllAsync = function (targetVersion) {
+            return this.loadAsync(true, targetVersion);
         };
         MainPackage.prototype.sortedDeps = function () {
             var _this = this;
@@ -7173,12 +7643,11 @@ var pxt;
                 if (!p || pxt.U.lookup(visited, p.id))
                     return;
                 visited[p.id] = true;
-                if (p.config && p.config.dependencies) {
-                    var deps = Object.keys(p.config.dependencies);
-                    deps.sort(function (a, b) { return pxt.U.strcmp(a, b); });
-                    deps.forEach(function (id) { return rec(_this.resolveDep(id)); });
-                    ids.push(p.id);
-                }
+                var dependencies = p.dependencies();
+                var deps = Object.keys(dependencies);
+                deps.sort(function (a, b) { return pxt.U.strcmp(a, b); });
+                deps.forEach(function (id) { return rec(_this.resolveDep(id)); });
+                ids.push(p.id);
             };
             rec(this);
             return ids.map(function (id) { return _this.resolveDep(id); });
@@ -7189,9 +7658,10 @@ var pxt;
                 return dep.packageLocalizationStringsAsync(lang)
                     .then(function (depLoc) {
                     if (depLoc)
-                        for (var k in depLoc)
+                        Object.keys(depLoc).forEach(function (k) {
                             if (!loc[k])
                                 loc[k] = depLoc[k];
+                        });
                 });
             }))
                 .then(function () { return loc; });
@@ -7208,6 +7678,17 @@ var pxt;
                     var pkg = _a[_i];
                     pkg.parseJRes(this._jres);
                 }
+                if (pxt.appTarget.runtime && pxt.appTarget.runtime.palette) {
+                    var palBuf = pxt.appTarget.runtime.palette
+                        .map(function (s) { return ("000000" + parseInt(s.replace(/#/, ""), 16).toString(16)).slice(-6); })
+                        .join("");
+                    this._jres["__palette"] = {
+                        id: "__palette",
+                        data: palBuf,
+                        dataEncoding: "hex",
+                        mimeType: "application/x-palette"
+                    };
+                }
             }
             return this._jres;
         };
@@ -7218,7 +7699,8 @@ var pxt;
                 sourceFiles: [],
                 fileSystem: {},
                 target: target,
-                hexinfo: { hex: [] }
+                hexinfo: { hex: [] },
+                name: this.config ? this.config.name : ""
             };
             var generateFile = function (fn, cont) {
                 if (_this.config.files.indexOf(fn) < 0)
@@ -7228,15 +7710,6 @@ var pxt;
                     pxt.debug("updating " + fn + " (size=" + cont.length + ")...");
                     _this.host().writeFile(_this, fn, cont, true);
                 }
-            };
-            var upgradeFile = function (fn, cont) {
-                var updatedCont = _this.upgradeAPI(cont);
-                if (updatedCont != cont) {
-                    // save file (force write)
-                    pxt.debug("updating APIs in " + fn + " (size=" + cont.length + ")...");
-                    _this.host().writeFile(_this, fn, updatedCont, true);
-                }
-                return updatedCont;
             };
             return this.loadAsync()
                 .then(function () {
@@ -7261,7 +7734,7 @@ var pxt;
                 .then(function () { return _this.config.binaryonly || pxt.appTarget.compile.shortPointers || !opts.target.isNative ? null : _this.filesToBePublishedAsync(true); })
                 .then(function (files) {
                 if (files) {
-                    files = pxt.U.mapMap(files, upgradeFile);
+                    files = pxt.U.mapMap(files, function (f, c) { return _this.upgradeFile(f, c); });
                     var headerString_1 = JSON.stringify({
                         name: _this.config.name,
                         comment: _this.config.description,
@@ -7274,16 +7747,18 @@ var pxt;
                     var programText_1 = JSON.stringify(files);
                     return pxt.lzmaCompressAsync(headerString_1 + programText_1)
                         .then(function (buf) {
-                        opts.embedMeta = JSON.stringify({
-                            compression: "LZMA",
-                            headerSize: headerString_1.length,
-                            textSize: programText_1.length,
-                            name: _this.config.name,
-                            eURL: pxt.appTarget.appTheme.embedUrl,
-                            eVER: pxt.appTarget.versions ? pxt.appTarget.versions.target : "",
-                            pxtTarget: pxt.appTarget.id,
-                        });
-                        opts.embedBlob = ts.pxtc.encodeBase64(pxt.U.uint8ArrayToString(buf));
+                        if (buf) {
+                            opts.embedMeta = JSON.stringify({
+                                compression: "LZMA",
+                                headerSize: headerString_1.length,
+                                textSize: programText_1.length,
+                                name: _this.config.name,
+                                eURL: pxt.appTarget.appTheme.embedUrl,
+                                eVER: pxt.appTarget.versions ? pxt.appTarget.versions.target : "",
+                                pxtTarget: pxt.appTarget.id,
+                            });
+                            opts.embedBlob = ts.pxtc.encodeBase64(pxt.U.uint8ArrayToString(buf));
+                        }
                     });
                 }
                 else {
@@ -7319,6 +7794,8 @@ var pxt;
                 var cfg = pxt.U.clone(_this.config);
                 delete cfg.installedVersion;
                 delete cfg.additionalFilePath;
+                if (!cfg.targetVersions)
+                    cfg.targetVersions = pxt.appTarget.versions;
                 pxt.U.iterMap(cfg.dependencies, function (k, v) {
                     if (!v || /^file:/.test(v) || /^workspace:/.test(v)) {
                         cfg.dependencies[k] = "*";
@@ -7335,7 +7812,7 @@ var pxt;
                 return pxt.U.sortObjectFields(files);
             });
         };
-        MainPackage.prototype.compressToFileAsync = function (editor) {
+        MainPackage.prototype.saveToJsonAsync = function (editor) {
             var _this = this;
             return this.filesToBePublishedAsync(true)
                 .then(function (files) {
@@ -7348,8 +7825,12 @@ var pxt;
                     },
                     source: JSON.stringify(files, null, 2)
                 };
-                return pxt.lzmaCompressAsync(JSON.stringify(project, null, 2));
+                return project;
             });
+        };
+        MainPackage.prototype.compressToFileAsync = function (editor) {
+            return this.saveToJsonAsync(editor)
+                .then(function (project) { return pxt.lzmaCompressAsync(JSON.stringify(project, null, 2)); });
         };
         MainPackage.prototype.computePartDefinitions = function (parts) {
             if (!parts || !parts.length)
@@ -7359,10 +7840,10 @@ var pxt;
                 var pjson = d.readFile("pxtparts.json");
                 if (pjson) {
                     try {
-                        var p = JSON.parse(pjson);
-                        for (var k in p) {
+                        var p_1 = JSON.parse(pjson);
+                        Object.keys(p_1).forEach(function (k) {
                             if (parts.indexOf(k) >= 0) {
-                                var part = res[k] = p[k];
+                                var part = res[k] = p_1[k];
                                 if (typeof part.visual.image === "string" && /\.svg$/i.test(part.visual.image)) {
                                     var f = d.readFile(part.visual.image);
                                     if (!f)
@@ -7370,7 +7851,7 @@ var pxt;
                                     part.visual.image = "data:image/svg+xml," + encodeURIComponent(f);
                                 }
                             }
-                        }
+                        });
                     }
                     catch (e) {
                         pxt.reportError("parts", "invalid pxtparts.json file");
@@ -7382,6 +7863,57 @@ var pxt;
         return MainPackage;
     }(Package));
     pxt.MainPackage = MainPackage;
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
+    var patching;
+    (function (patching) {
+        function computePatches(version, kind) {
+            var patches = pxt.appTarget.compile ? pxt.appTarget.compile.patches : undefined;
+            if (!patches)
+                return undefined;
+            var v = pxt.semver.tryParse(version || "0.0.0") || pxt.semver.tryParse("0.0.0");
+            var r = [];
+            Object.keys(patches)
+                .filter(function (rng) { return pxt.semver.inRange(rng, v); })
+                .forEach(function (rng) { return r = r.concat(patches[rng]); });
+            if (kind)
+                r = r.filter(function (p) { return p.type == kind; });
+            return r.length ? r : undefined;
+        }
+        patching.computePatches = computePatches;
+        function upgradePackageReference(pkgTargetVersion, pkg, val) {
+            if (val != "*")
+                return pkg;
+            var upgrades = pxt.patching.computePatches(pkgTargetVersion, "package");
+            var newPackage = pkg;
+            if (upgrades) {
+                upgrades.forEach(function (rule) {
+                    Object.keys(rule.map).forEach(function (match) {
+                        if (newPackage == match) {
+                            newPackage = rule.map[match];
+                        }
+                    });
+                });
+            }
+            return newPackage;
+        }
+        patching.upgradePackageReference = upgradePackageReference;
+        function patchJavaScript(pkgTargetVersion, fileContents) {
+            var upgrades = pxt.patching.computePatches(pkgTargetVersion, "api");
+            var updatedContents = fileContents;
+            if (upgrades) {
+                upgrades.forEach(function (rule) {
+                    for (var match in rule.map) {
+                        var regex = new RegExp(match, 'g');
+                        updatedContents = updatedContents.replace(regex, rule.map[match]);
+                    }
+                });
+            }
+            return updatedContents;
+        }
+        patching.patchJavaScript = patchJavaScript;
+    })(patching = pxt.patching || (pxt.patching = {}));
 })(pxt || (pxt = {}));
 // see http://semver.org/
 var pxt;
@@ -7456,6 +7988,10 @@ var pxt;
             return null;
         }
         semver.tryParse = tryParse;
+        function normalize(v) {
+            return stringify(parse(v));
+        }
+        semver.normalize = normalize;
         function stringify(v) {
             var r = v.major + "." + v.minor + "." + v.patch;
             if (v.pre.length)
@@ -7480,6 +8016,21 @@ var pxt;
                 return cmp(aa, bb);
         }
         semver.strcmp = strcmp;
+        function inRange(rng, v) {
+            var rngs = rng.split(' - ');
+            if (rngs.length != 2)
+                return false;
+            var minInclusive = tryParse(rngs[0]);
+            var maxExclusive = tryParse(rngs[1]);
+            if (!minInclusive || !maxExclusive)
+                return false;
+            if (!v)
+                return true;
+            var lwr = cmp(minInclusive, v);
+            var hr = cmp(v, maxExclusive);
+            return lwr <= 0 && hr < 0;
+        }
+        semver.inRange = inRange;
         function test() {
             console.log("Test semver");
             var d = [
@@ -7509,6 +8060,12 @@ var pxt;
                         pxt.U.assert(x == 0);
                 }
             }
+            var v = tryParse("1.2.3");
+            pxt.U.assert(inRange("0.1.2 - 2.2.3", v));
+            pxt.U.assert(inRange("1.2.3 - 2.2.3", v));
+            pxt.U.assert(!inRange("0.0.0 - 1.2.3", v));
+            pxt.U.assert(!inRange("1.2.4 - 4.2.3", v));
+            pxt.U.assert(!inRange("0.0.0 - 0.0.1", v));
         }
         semver.test = test;
     })(semver = pxt.semver || (pxt.semver = {}));
@@ -7526,6 +8083,7 @@ var ts;
         pxtc.ON_START_COMMENT = pxtc.U.lf("on start");
         pxtc.HANDLER_COMMENT = pxtc.U.lf("code goes here");
         pxtc.TS_STATEMENT_TYPE = "typescript_statement";
+        pxtc.TS_DEBUGGER_TYPE = "debugger_keyword";
         pxtc.TS_OUTPUT_TYPE = "typescript_expression";
         pxtc.PAUSE_UNTIL_TYPE = "pxt_pause_until";
         pxtc.BINARY_JS = "binary.js";
@@ -7556,7 +8114,7 @@ var ts;
             if (!resp.usedSymbols || !pxt.appTarget.simulator || !pxt.appTarget.simulator.parts)
                 return [];
             var parts = [];
-            for (var symbol in resp.usedSymbols) {
+            Object.keys(resp.usedSymbols).forEach(function (symbol) {
                 var info = resp.usedSymbols[symbol];
                 if (info && info.attributes.parts) {
                     var partsRaw = info.attributes.parts;
@@ -7569,7 +8127,7 @@ var ts;
                         });
                     }
                 }
-            }
+            });
             if (ignoreBuiltin) {
                 var builtinParts_1 = pxt.appTarget.simulator.boardDefinition.onboardComponents;
                 if (builtinParts_1)
@@ -7592,12 +8150,168 @@ var ts;
         }
         pxtc.blocksCategory = blocksCategory;
         function getBlocksInfo(info) {
-            var blocks = pxtc.Util.values(info.byQName)
-                .filter(function (s) { return !!s.attributes.block && !!s.attributes.blockId && (s.kind != pxtc.SymbolKind.EnumMember); });
+            var blocks = [];
+            var combinedSet = {};
+            var combinedGet = {};
+            var combinedChange = {};
+            var enumsByName = {};
+            function addCombined(rtp, s) {
+                var isGet = rtp == "get";
+                var isSet = rtp == "set";
+                var isNumberType = s.retType == "number";
+                var m = isGet ? combinedGet : (isSet ? combinedSet : combinedChange);
+                var mkey = s.namespace + "." + s.retType;
+                var ex = pxtc.U.lookup(m, mkey);
+                if (!ex) {
+                    var tp = "@" + rtp + "@";
+                    var paramNameShadow = void 0, paramValueShadow = void 0;
+                    if (s.attributes.blockCombineShadow) {
+                        // allowable %blockCombineShadow strings:-
+                        //   '{name shadow},' or '{value shadow}' or ',{value shadow}' or '{name shadow},{value shadow}'
+                        var attribute = s.attributes.blockCombineShadow;
+                        var match = attribute.match(/^([^,.]*),?([^,.]*)$/);
+                        if (match && match.length == 3) {
+                            paramNameShadow = match[1].trim();
+                            paramValueShadow = match[2].trim();
+                            if (paramValueShadow.length == 0 && !pxtc.Util.endsWith(attribute, ",")) {
+                                paramValueShadow = paramNameShadow;
+                                paramNameShadow = "";
+                            }
+                        }
+                    }
+                    var paramName = s.namespace.toLowerCase() + "=" + (paramNameShadow || "");
+                    var paramValue = "value=" + (paramValueShadow || "");
+                    ex = m[mkey] = {
+                        attributes: {
+                            blockId: (isNumberType ? s.namespace : mkey) + "_blockCombine_" + rtp,
+                            callingConvention: pxtc.ir.CallingConvention.Plain,
+                            group: s.attributes.group,
+                            paramDefl: {},
+                            jsDoc: isGet
+                                ? pxtc.U.lf("Read value of a property on an object")
+                                : pxtc.U.lf("Update value of property on an object")
+                        },
+                        name: tp,
+                        namespace: s.namespace,
+                        qName: mkey + "." + tp,
+                        pkg: s.pkg,
+                        kind: SymbolKind.Property,
+                        parameters: [
+                            {
+                                name: "property",
+                                description: isGet ?
+                                    pxtc.U.lf("the name of the property to read") :
+                                    pxtc.U.lf("the name of the property to change"),
+                                isEnum: true,
+                                type: "@combined@"
+                            },
+                            {
+                                name: "value",
+                                description: isSet ?
+                                    pxtc.U.lf("the new value of the property") :
+                                    pxtc.U.lf("the amount by which to change the property"),
+                                type: s.retType,
+                            }
+                        ].slice(0, isGet ? 1 : 2),
+                        retType: isGet ? s.retType : "void",
+                        combinedProperties: []
+                    };
+                    ex.attributes.block =
+                        isGet ? "%" + paramName + " %property" :
+                            isSet ? "set %" + paramName + " %property to %" + paramValue :
+                                "change %" + paramName + " %property by %" + paramValue;
+                    updateBlockDef(ex.attributes);
+                    blocks.push(ex);
+                }
+                ex.combinedProperties.push(s.qName);
+            }
+            for (var _i = 0, _a = pxtc.Util.values(info.byQName); _i < _a.length; _i++) {
+                var s = _a[_i];
+                if (s.attributes.shim === "ENUM_GET" && s.attributes.enumName && s.attributes.blockId) {
+                    var didFail = false;
+                    if (enumsByName[s.attributes.enumName]) {
+                        console.warn("Enum block " + s.attributes.blockId + " trying to overwrite enum " + s.attributes.enumName);
+                        didFail = true;
+                    }
+                    if (!s.attributes.enumMemberName) {
+                        console.warn("Enum block " + s.attributes.blockId + " should specify enumMemberName");
+                        didFail = true;
+                    }
+                    if (!s.attributes.enumPromptHint) {
+                        console.warn("Enum block " + s.attributes.blockId + " should specify enumPromptHint");
+                        didFail = true;
+                    }
+                    if (!s.attributes.enumInitialMembers || !s.attributes.enumInitialMembers.length) {
+                        console.warn("Enum block " + s.attributes.blockId + " should specify enumInitialMembers");
+                        didFail = true;
+                    }
+                    if (didFail) {
+                        continue;
+                    }
+                    var firstValue = parseInt(s.attributes.enumStartValue);
+                    enumsByName[s.attributes.enumName] = {
+                        blockId: s.attributes.blockId,
+                        name: s.attributes.enumName,
+                        memberName: s.attributes.enumMemberName,
+                        firstValue: isNaN(firstValue) ? undefined : firstValue,
+                        isBitMask: s.attributes.enumIsBitMask,
+                        initialMembers: s.attributes.enumInitialMembers,
+                        promptHint: s.attributes.enumPromptHint
+                    };
+                }
+                if (s.attributes.blockCombine) {
+                    if (!/@set/.test(s.name)) {
+                        addCombined("get", s);
+                    }
+                    if (!s.isReadOnly) {
+                        if (s.retType == 'number') {
+                            addCombined("change", s);
+                        }
+                        addCombined("set", s);
+                    }
+                }
+                else if (!!s.attributes.block
+                    && !s.attributes.fixedInstance
+                    && s.kind != pxtc.SymbolKind.EnumMember
+                    && s.kind != pxtc.SymbolKind.Module
+                    && s.kind != pxtc.SymbolKind.Interface
+                    && s.kind != pxtc.SymbolKind.Class) {
+                    if (!s.attributes.blockId)
+                        s.attributes.blockId = s.qName.replace(/\./g, "_");
+                    if (s.attributes.block == "true") {
+                        var b = pxtc.U.uncapitalize(s.name);
+                        if (s.kind == SymbolKind.Method || s.kind == SymbolKind.Property) {
+                            b += " %" + s.namespace.toLowerCase();
+                        }
+                        for (var _b = 0, _c = s.parameters || []; _b < _c.length; _b++) {
+                            var p = _c[_b];
+                            b += " %" + p.name;
+                        }
+                        s.attributes.block = b;
+                        updateBlockDef(s.attributes);
+                    }
+                    blocks.push(s);
+                }
+            }
+            // derive common block properties from namespace
+            for (var _d = 0, blocks_1 = blocks; _d < blocks_1.length; _d++) {
+                var b = blocks_1[_d];
+                var parent_2 = pxtc.U.lookup(info.byQName, b.namespace);
+                if (!parent_2)
+                    continue;
+                var pattr = parent_2.attributes;
+                var battr = b.attributes;
+                for (var _e = 0, _f = ["blockNamespace", "color", "blockGap"]; _e < _f.length; _e++) {
+                    var n = _f[_e];
+                    if (battr[n] === undefined && pattr[n])
+                        battr[n] = pattr[n];
+                }
+            }
             return {
                 apis: info,
                 blocks: blocks,
-                blocksById: pxt.Util.toDictionary(blocks, function (b) { return b.attributes.blockId; })
+                blocksById: pxt.Util.toDictionary(blocks, function (b) { return b.attributes.blockId; }),
+                enumsByName: enumsByName
             };
         }
         pxtc.getBlocksInfo = getBlocksInfo;
@@ -7636,6 +8350,7 @@ var ts;
                         }
                     }
                 }
+                updateBlockDef(fn.attributes);
             }); })
                 .then(function () { return apis; });
         }
@@ -7666,7 +8381,18 @@ var ts;
         }
         pxtc.emptyExtInfo = emptyExtInfo;
         var numberAttributes = ["weight", "imageLiteral"];
-        var booleanAttributes = ["advanced", "handlerStatement", "afterOnStart", "optionalVariableArgs", "blockHidden"];
+        var booleanAttributes = [
+            "advanced",
+            "handlerStatement",
+            "afterOnStart",
+            "optionalVariableArgs",
+            "blockHidden",
+            "constantShim",
+            "blockCombine",
+            "enumIsBitMask",
+            "decompileIndirectFixedInstances",
+            "draggableParameters"
+        ];
         function parseCommentString(cmt) {
             var res = {
                 paramDefl: {},
@@ -7741,6 +8467,9 @@ var ts;
             if (res.trackArgs) {
                 res.trackArgs = res.trackArgs.split(/[ ,]+/).map(function (s) { return parseInt(s) || 0; });
             }
+            if (res.enumInitialMembers) {
+                res.enumInitialMembers = res.enumInitialMembers.split(/[ ,]+/);
+            }
             if (res.blockExternalInputs && !res.inlineInputMode) {
                 res.inlineInputMode = "external";
             }
@@ -7804,24 +8533,28 @@ var ts;
                     res.groupIcons = undefined;
                 }
             }
-            if (res.block) {
-                var parts = res.block.split("||");
-                res._def = parseBlockDefinition(parts[0]);
-                if (!res._def)
-                    pxt.debug("Unable to parse block def for id: " + res.blockId);
-                if (parts[1])
-                    res._expandedDef = parseBlockDefinition(parts[1]);
-                if (parts[1] && !res._expandedDef)
-                    pxt.debug("Unable to parse expanded block def for id: " + res.blockId);
-            }
+            updateBlockDef(res);
             return res;
         }
         pxtc.parseCommentString = parseCommentString;
+        function updateBlockDef(attrs) {
+            if (attrs.block) {
+                var parts = attrs.block.split("||");
+                attrs._def = parseBlockDefinition(parts[0]);
+                if (!attrs._def)
+                    pxt.debug("Unable to parse block def for id: " + attrs.blockId);
+                if (parts[1])
+                    attrs._expandedDef = parseBlockDefinition(parts[1]);
+                if (parts[1] && !attrs._expandedDef)
+                    pxt.debug("Unable to parse expanded block def for id: " + attrs.blockId);
+            }
+        }
+        pxtc.updateBlockDef = updateBlockDef;
         function parseBlockDefinition(def) {
             var tokens = [];
             var currentWord;
             var strIndex = 0;
-            var _loop_7 = function () {
+            var _loop_6 = function () {
                 var char = def[strIndex];
                 var newToken = void 0;
                 switch (char) {
@@ -7862,11 +8595,12 @@ var ts;
                             return { value: undefined }; // error: not terminated
                         newToken = { kind: 512 /* TaggedText */, content: contentText, type: contentClass };
                         break;
+                    case "$":
                     case "%":
                         var param = eatToken(function (c) { return /[a-zA-Z0-9_=]/.test(c); }, true).split("=");
                         if (param.length > 2)
                             return { value: undefined }; // error: invalid parameter
-                        newToken = { kind: 64 /* Parameter */, content: param[0], type: param[1] };
+                        newToken = { kind: (char === "$") ? 1024 /* ParamRef */ : 64 /* Parameter */, content: param[0], type: param[1] };
                         break;
                 }
                 if (newToken) {
@@ -7883,7 +8617,7 @@ var ts;
                 }
             };
             for (; strIndex < def.length; strIndex++) {
-                var state_2 = _loop_7();
+                var state_2 = _loop_6();
                 if (typeof state_2 === "object")
                     return state_2.value;
             }
@@ -7932,6 +8666,7 @@ var ts;
                             break;
                         case 32 /* Pipe */:
                         case 64 /* Parameter */:
+                        case 1024 /* ParamRef */:
                             if (open) {
                                 return undefined; // error: style marks should be closed
                             }
@@ -7945,8 +8680,14 @@ var ts;
                     parts.push({ kind: "label", text: currentLabel, style: styles });
                     currentLabel = "";
                 }
+                /* tslint:disable:possible-timing-attack  (not a security critical codepath) */
                 if (token == 64 /* Parameter */) {
-                    var param = { kind: "param", name: tokens[i].content, shadowBlockId: tokens[i].type };
+                    var param = { kind: "param", name: tokens[i].content, shadowBlockId: tokens[i].type, ref: false };
+                    parts.push(param);
+                    parameters.push(param);
+                }
+                else if (token == 1024 /* ParamRef */) {
+                    var param = { kind: "param", name: tokens[i].content, shadowBlockId: tokens[i].type, ref: true };
                     parts.push(param);
                     parameters.push(param);
                 }
@@ -7959,6 +8700,7 @@ var ts;
                 else if (token == 32 /* Pipe */) {
                     parts.push({ kind: "break" });
                 }
+                /* tslint:enable:possible-timing-attack */
             }
             if (open)
                 return undefined; // error: style marks should terminate
@@ -7970,13 +8712,13 @@ var ts;
                 if (skipCurrent === void 0) { skipCurrent = false; }
                 var current = "";
                 if (skipCurrent)
-                    ++strIndex;
+                    strIndex++;
                 while (strIndex < def.length && pred(def[strIndex])) {
                     current += def[strIndex];
                     ++strIndex;
                 }
                 if (current)
-                    --strIndex;
+                    strIndex--;
                 return current;
             }
             function eatEnclosure(endMark) {
@@ -8330,6 +9072,922 @@ var pxt;
         }
         streams.postPayloadAsync = postPayloadAsync;
     })(streams = pxt.streams || (pxt.streams = {}));
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
+    var svgUtil;
+    (function (svgUtil) {
+        var PatternUnits;
+        (function (PatternUnits) {
+            PatternUnits[PatternUnits["userSpaceOnUse"] = 0] = "userSpaceOnUse";
+            PatternUnits[PatternUnits["objectBoundingBox"] = 1] = "objectBoundingBox";
+        })(PatternUnits = svgUtil.PatternUnits || (svgUtil.PatternUnits = {}));
+        var LengthUnit;
+        (function (LengthUnit) {
+            LengthUnit[LengthUnit["em"] = 0] = "em";
+            LengthUnit[LengthUnit["ex"] = 1] = "ex";
+            LengthUnit[LengthUnit["px"] = 2] = "px";
+            LengthUnit[LengthUnit["in"] = 3] = "in";
+            LengthUnit[LengthUnit["cm"] = 4] = "cm";
+            LengthUnit[LengthUnit["mm"] = 5] = "mm";
+            LengthUnit[LengthUnit["pt"] = 6] = "pt";
+            LengthUnit[LengthUnit["pc"] = 7] = "pc";
+            LengthUnit[LengthUnit["percent"] = 8] = "percent";
+        })(LengthUnit = svgUtil.LengthUnit || (svgUtil.LengthUnit = {}));
+        var BaseElement = /** @class */ (function () {
+            function BaseElement(type) {
+                this.el = elt(type);
+            }
+            BaseElement.prototype.attr = function (attributes) {
+                var _this = this;
+                Object.keys(attributes).forEach(function (at) {
+                    _this.setAttribute(at, attributes[at]);
+                });
+                return this;
+            };
+            BaseElement.prototype.setAttribute = function (name, value) {
+                this.el.setAttribute(name, value.toString());
+                return this;
+            };
+            BaseElement.prototype.id = function (id) {
+                return this.setAttribute("id", id);
+            };
+            BaseElement.prototype.setClass = function () {
+                var classes = [];
+                for (var _i = 0; _i < arguments.length; _i++) {
+                    classes[_i] = arguments[_i];
+                }
+                return this.setAttribute("class", classes.join(" "));
+            };
+            BaseElement.prototype.appendClass = function (className) {
+                addClass(this.el, className);
+                return this;
+            };
+            BaseElement.prototype.removeClass = function (className) {
+                removeClass(this.el, className);
+            };
+            BaseElement.prototype.title = function (text) {
+                if (!this.titleElement) {
+                    this.titleElement = elt("title");
+                    // Title has to be the first child in the DOM
+                    if (this.el.firstChild) {
+                        this.el.insertBefore(this.titleElement, this.el.firstChild);
+                    }
+                    else {
+                        this.el.appendChild(this.titleElement);
+                    }
+                }
+                this.titleElement.textContent = text;
+            };
+            BaseElement.prototype.setVisible = function (visible) {
+                return this.setAttribute("visibility", visible ? "visible" : "hidden");
+            };
+            return BaseElement;
+        }());
+        svgUtil.BaseElement = BaseElement;
+        var DrawContext = /** @class */ (function (_super) {
+            __extends(DrawContext, _super);
+            function DrawContext() {
+                return _super !== null && _super.apply(this, arguments) || this;
+            }
+            DrawContext.prototype.draw = function (type) {
+                var el = drawable(type /*FIXME?*/);
+                this.el.appendChild(el.el);
+                return el;
+            };
+            DrawContext.prototype.element = function (type, cb) {
+                cb(this.draw(type /*FIXME?*/));
+                return this;
+            };
+            DrawContext.prototype.group = function () {
+                var g = new Group();
+                this.el.appendChild(g.el);
+                return g;
+            };
+            DrawContext.prototype.appendChild = function (child) {
+                this.el.appendChild(child.el);
+            };
+            return DrawContext;
+        }(BaseElement));
+        svgUtil.DrawContext = DrawContext;
+        var SVG = /** @class */ (function (_super) {
+            __extends(SVG, _super);
+            function SVG(parent) {
+                var _this = _super.call(this, "svg") || this;
+                if (parent) {
+                    parent.appendChild(_this.el);
+                }
+                return _this;
+            }
+            SVG.prototype.define = function (cb) {
+                if (!this.defs) {
+                    this.defs = new DefsElement(this.el);
+                }
+                cb(this.defs);
+                return this;
+            };
+            return SVG;
+        }(DrawContext));
+        svgUtil.SVG = SVG;
+        var Group = /** @class */ (function (_super) {
+            __extends(Group, _super);
+            function Group(parent) {
+                var _this = _super.call(this, "g") || this;
+                if (parent) {
+                    parent.appendChild(_this.el);
+                }
+                return _this;
+            }
+            Group.prototype.translate = function (x, y) {
+                this.left = x;
+                this.top = y;
+                return this.updateTransform();
+            };
+            Group.prototype.scale = function (factor) {
+                this.scaleFactor = factor;
+                return this.updateTransform();
+            };
+            Group.prototype.updateTransform = function () {
+                var transform = "";
+                if (this.left != undefined) {
+                    transform += "translate(" + this.left + " " + this.top + ")";
+                }
+                if (this.scaleFactor != undefined) {
+                    transform += " scale(" + this.scaleFactor + ")";
+                }
+                this.setAttribute("transform", transform);
+                return this;
+            };
+            return Group;
+        }(DrawContext));
+        svgUtil.Group = Group;
+        var Pattern = /** @class */ (function (_super) {
+            __extends(Pattern, _super);
+            function Pattern() {
+                return _super.call(this, "pattern") || this;
+            }
+            Pattern.prototype.units = function (kind) {
+                return this.setAttribute("patternUnits", kind === PatternUnits.objectBoundingBox ? "objectBoundingBox" : "userSpaceOnUse");
+            };
+            Pattern.prototype.contentUnits = function (kind) {
+                return this.setAttribute("patternContentUnits", kind === PatternUnits.objectBoundingBox ? "objectBoundingBox" : "userSpaceOnUse");
+            };
+            Pattern.prototype.size = function (width, height) {
+                this.setAttribute("width", width);
+                this.setAttribute("height", height);
+                return this;
+            };
+            return Pattern;
+        }(DrawContext));
+        svgUtil.Pattern = Pattern;
+        var DefsElement = /** @class */ (function (_super) {
+            __extends(DefsElement, _super);
+            function DefsElement(parent) {
+                var _this = _super.call(this, "defs") || this;
+                parent.appendChild(_this.el);
+                return _this;
+            }
+            DefsElement.prototype.create = function (type, id) {
+                var el;
+                switch (type) {
+                    case "path":
+                        el = new Path();
+                        break;
+                    case "pattern":
+                        el = new Pattern();
+                        break;
+                    case "radialGradient":
+                        el = new RadialGradient();
+                        break;
+                    case "linearGradient":
+                        el = new LinearGradient();
+                        break;
+                    default: el = new BaseElement(type);
+                }
+                el.id(id);
+                this.el.appendChild(el.el);
+                return el;
+            };
+            return DefsElement;
+        }(BaseElement));
+        svgUtil.DefsElement = DefsElement;
+        var Drawable = /** @class */ (function (_super) {
+            __extends(Drawable, _super);
+            function Drawable() {
+                return _super !== null && _super.apply(this, arguments) || this;
+            }
+            Drawable.prototype.at = function (x, y) {
+                this.setAttribute("x", x);
+                this.setAttribute("y", y);
+                return this;
+            };
+            Drawable.prototype.moveTo = function (x, y) {
+                return this.at(x, y);
+            };
+            Drawable.prototype.fill = function (color, opacity) {
+                this.setAttribute("fill", color);
+                if (opacity != undefined) {
+                    this.opacity(opacity);
+                }
+                return this;
+            };
+            Drawable.prototype.opacity = function (opacity) {
+                return this.setAttribute("fill-opacity", opacity);
+            };
+            Drawable.prototype.stroke = function (color, width) {
+                this.setAttribute("stroke", color);
+                if (width != undefined) {
+                    this.strokeWidth(width);
+                }
+                return this;
+            };
+            Drawable.prototype.strokeWidth = function (width) {
+                return this.setAttribute("stroke-width", width);
+            };
+            Drawable.prototype.strokeOpacity = function (opacity) {
+                return this.setAttribute("stroke-opacity", opacity);
+            };
+            Drawable.prototype.onDown = function (handler) {
+                svgUtil.events.down(this.el, handler);
+                return this;
+            };
+            Drawable.prototype.onUp = function (handler) {
+                svgUtil.events.up(this.el, handler);
+                return this;
+            };
+            Drawable.prototype.onMove = function (handler) {
+                svgUtil.events.move(this.el, handler);
+                return this;
+            };
+            Drawable.prototype.onEnter = function (handler) {
+                svgUtil.events.enter(this.el, handler);
+                return this;
+            };
+            Drawable.prototype.onLeave = function (handler) {
+                svgUtil.events.leave(this.el, handler);
+                return this;
+            };
+            Drawable.prototype.onClick = function (handler) {
+                svgUtil.events.click(this.el, handler);
+                return this;
+            };
+            return Drawable;
+        }(DrawContext));
+        svgUtil.Drawable = Drawable;
+        var Text = /** @class */ (function (_super) {
+            __extends(Text, _super);
+            function Text(text) {
+                var _this = _super.call(this, "text") || this;
+                if (text != undefined) {
+                    _this.text(text);
+                }
+                return _this;
+            }
+            Text.prototype.text = function (text) {
+                this.el.textContent = text;
+                return this;
+            };
+            Text.prototype.fontFamily = function (family) {
+                return this.setAttribute("font-family", family);
+            };
+            Text.prototype.fontSize = function (size, units) {
+                return this.setAttribute("font-size", lengthWithUnits(size, units));
+            };
+            Text.prototype.offset = function (dx, dy, units) {
+                if (dx !== 0) {
+                    this.setAttribute("dx", lengthWithUnits(dx, units));
+                }
+                if (dy !== 0) {
+                    this.setAttribute("dy", lengthWithUnits(dy, units));
+                }
+                return this;
+            };
+            Text.prototype.anchor = function (type) {
+                return this.setAttribute("text-anchor", type);
+            };
+            return Text;
+        }(Drawable));
+        svgUtil.Text = Text;
+        var Rect = /** @class */ (function (_super) {
+            __extends(Rect, _super);
+            function Rect() {
+                return _super.call(this, "rect") || this;
+            }
+            ;
+            Rect.prototype.width = function (width, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                return this.setAttribute("width", lengthWithUnits(width, unit));
+            };
+            Rect.prototype.height = function (height, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                return this.setAttribute("height", lengthWithUnits(height, unit));
+            };
+            Rect.prototype.corner = function (radius) {
+                return this.corners(radius, radius);
+            };
+            Rect.prototype.corners = function (rx, ry) {
+                this.setAttribute("rx", rx);
+                this.setAttribute("ry", ry);
+                return this;
+            };
+            Rect.prototype.size = function (width, height, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                this.width(width, unit);
+                this.height(height, unit);
+                return this;
+            };
+            return Rect;
+        }(Drawable));
+        svgUtil.Rect = Rect;
+        var Circle = /** @class */ (function (_super) {
+            __extends(Circle, _super);
+            function Circle() {
+                return _super.call(this, "circle") || this;
+            }
+            Circle.prototype.at = function (cx, cy) {
+                this.setAttribute("cx", cx);
+                this.setAttribute("cy", cy);
+                return this;
+            };
+            Circle.prototype.radius = function (r) {
+                return this.setAttribute("r", r);
+            };
+            return Circle;
+        }(Drawable));
+        svgUtil.Circle = Circle;
+        var Ellipse = /** @class */ (function (_super) {
+            __extends(Ellipse, _super);
+            function Ellipse() {
+                return _super.call(this, "ellipse") || this;
+            }
+            Ellipse.prototype.at = function (cx, cy) {
+                this.setAttribute("cx", cx);
+                this.setAttribute("cy", cy);
+                return this;
+            };
+            Ellipse.prototype.radius = function (rx, ry) {
+                this.setAttribute("rx", rx);
+                this.setAttribute("ry", ry);
+                return this;
+            };
+            return Ellipse;
+        }(Drawable));
+        var Line = /** @class */ (function (_super) {
+            __extends(Line, _super);
+            function Line() {
+                return _super.call(this, "line") || this;
+            }
+            Line.prototype.at = function (x1, y1, x2, y2) {
+                this.from(x1, y1);
+                if (x2 != undefined && y2 != undefined) {
+                    this.to(x2, y2);
+                }
+                return this;
+            };
+            Line.prototype.from = function (x1, y1) {
+                this.setAttribute("x1", x1);
+                this.setAttribute("y1", y1);
+                return this;
+            };
+            Line.prototype.to = function (x2, y2) {
+                this.setAttribute("x2", x2);
+                this.setAttribute("y2", y2);
+                return this;
+            };
+            return Line;
+        }(Drawable));
+        svgUtil.Line = Line;
+        var PolyElement = /** @class */ (function (_super) {
+            __extends(PolyElement, _super);
+            function PolyElement() {
+                return _super !== null && _super.apply(this, arguments) || this;
+            }
+            PolyElement.prototype.points = function (points) {
+                return this.setAttribute("points", points);
+            };
+            PolyElement.prototype.with = function (points) {
+                return this.points(points.map(function (_a) {
+                    var x = _a.x, y = _a.y;
+                    return x + " " + y;
+                }).join(","));
+            };
+            return PolyElement;
+        }(Drawable));
+        svgUtil.PolyElement = PolyElement;
+        var Polyline = /** @class */ (function (_super) {
+            __extends(Polyline, _super);
+            function Polyline() {
+                return _super.call(this, "polyline") || this;
+            }
+            return Polyline;
+        }(PolyElement));
+        svgUtil.Polyline = Polyline;
+        var Polygon = /** @class */ (function (_super) {
+            __extends(Polygon, _super);
+            function Polygon() {
+                return _super.call(this, "polygon") || this;
+            }
+            return Polygon;
+        }(PolyElement));
+        svgUtil.Polygon = Polygon;
+        var Path = /** @class */ (function (_super) {
+            __extends(Path, _super);
+            function Path() {
+                var _this = _super.call(this, "path") || this;
+                _this.d = new PathContext();
+                return _this;
+            }
+            Path.prototype.update = function () {
+                return this.setAttribute("d", this.d.toAttribute());
+            };
+            Path.prototype.path = function (cb) {
+                cb(this.d);
+                return this.update();
+            };
+            return Path;
+        }(Drawable));
+        svgUtil.Path = Path;
+        var Image = /** @class */ (function (_super) {
+            __extends(Image, _super);
+            function Image() {
+                return _super.call(this, "image") || this;
+            }
+            Image.prototype.src = function (url) {
+                return this.setAttribute("href", url);
+            };
+            Image.prototype.width = function (width, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                return this.setAttribute("width", lengthWithUnits(width, unit));
+            };
+            Image.prototype.height = function (height, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                return this.setAttribute("height", lengthWithUnits(height, unit));
+            };
+            Image.prototype.size = function (width, height, unit) {
+                if (unit === void 0) { unit = LengthUnit.px; }
+                this.width(width, unit);
+                this.height(height, unit);
+                return this;
+            };
+            return Image;
+        }(Drawable));
+        svgUtil.Image = Image;
+        var Gradient = /** @class */ (function (_super) {
+            __extends(Gradient, _super);
+            function Gradient() {
+                return _super !== null && _super.apply(this, arguments) || this;
+            }
+            Gradient.prototype.units = function (kind) {
+                return this.setAttribute("gradientUnits", kind === PatternUnits.objectBoundingBox ? "objectBoundingBox" : "userSpaceOnUse");
+            };
+            Gradient.prototype.stop = function (offset, color, opacity) {
+                var s = elt("stop");
+                s.setAttribute("offset", offset + "%");
+                if (color != undefined) {
+                    s.setAttribute("stop-color", color);
+                }
+                if (opacity != undefined) {
+                    s.setAttribute("stop-opacity", opacity);
+                }
+                this.el.appendChild(s);
+                return this;
+            };
+            return Gradient;
+        }(BaseElement));
+        svgUtil.Gradient = Gradient;
+        var LinearGradient = /** @class */ (function (_super) {
+            __extends(LinearGradient, _super);
+            function LinearGradient() {
+                return _super.call(this, "linearGradient") || this;
+            }
+            LinearGradient.prototype.start = function (x1, y1) {
+                this.setAttribute("x1", x1);
+                this.setAttribute("y1", y1);
+                return this;
+            };
+            LinearGradient.prototype.end = function (x2, y2) {
+                this.setAttribute("x2", x2);
+                this.setAttribute("y2", y2);
+                return this;
+            };
+            return LinearGradient;
+        }(Gradient));
+        svgUtil.LinearGradient = LinearGradient;
+        var RadialGradient = /** @class */ (function (_super) {
+            __extends(RadialGradient, _super);
+            function RadialGradient() {
+                return _super.call(this, "radialGradient") || this;
+            }
+            RadialGradient.prototype.center = function (cx, cy) {
+                this.setAttribute("cx", cx);
+                this.setAttribute("cy", cy);
+                return this;
+            };
+            RadialGradient.prototype.focus = function (fx, fy, fr) {
+                this.setAttribute("fx", fx);
+                this.setAttribute("fy", fy);
+                this.setAttribute("fr", fr);
+                return this;
+            };
+            RadialGradient.prototype.radius = function (r) {
+                return this.setAttribute("r", r);
+            };
+            return RadialGradient;
+        }(Gradient));
+        svgUtil.RadialGradient = RadialGradient;
+        function elt(type) {
+            var el = document.createElementNS("http://www.w3.org/2000/svg", type);
+            return el;
+        }
+        function drawable(type) {
+            switch (type) {
+                case "text": return new Text();
+                case "circle": return new Circle();
+                case "rect": return new Rect();
+                case "line": return new Line();
+                case "polygon": return new Polygon();
+                case "polyline": return new Polyline();
+                case "path": return new Path();
+                default: return new Drawable(type);
+            }
+        }
+        var PathContext = /** @class */ (function () {
+            function PathContext() {
+                this.ops = [];
+            }
+            PathContext.prototype.clear = function () {
+                this.ops = [];
+            };
+            PathContext.prototype.moveTo = function (x, y) {
+                return this.op("M", x, y);
+            };
+            PathContext.prototype.moveBy = function (dx, dy) {
+                return this.op("m", dx, dy);
+            };
+            PathContext.prototype.lineTo = function (x, y) {
+                return this.op("L", x, y);
+            };
+            PathContext.prototype.lineBy = function (dx, dy) {
+                return this.op("l", dx, dy);
+            };
+            PathContext.prototype.cCurveTo = function (c1x, c1y, c2x, c2y, x, y) {
+                return this.op("C", c1x, c1y, c2x, c2y, x, y);
+            };
+            PathContext.prototype.cCurveBy = function (dc1x, dc1y, dc2x, dc2y, dx, dy) {
+                return this.op("c", dc1x, dc1y, dc2x, dc2y, dx, dy);
+            };
+            PathContext.prototype.qCurveTo = function (cx, cy, x, y) {
+                return this.op("Q", cx, cy, x, y);
+            };
+            PathContext.prototype.qCurveBy = function (dcx, dcy, dx, dy) {
+                return this.op("q", dcx, dcy, dx, dy);
+            };
+            PathContext.prototype.sCurveTo = function (cx, cy, x, y) {
+                return this.op("S", cx, cy, x, y);
+            };
+            PathContext.prototype.sCurveBy = function (dcx, dcy, dx, dy) {
+                return this.op("s", dcx, dcy, dx, dy);
+            };
+            PathContext.prototype.tCurveTo = function (x, y) {
+                return this.op("T", x, y);
+            };
+            PathContext.prototype.tCurveBy = function (dx, dy) {
+                return this.op("t", dx, dy);
+            };
+            PathContext.prototype.arcTo = function (rx, ry, xRotate, large, sweepClockwise, x, y) {
+                return this.op("A", rx, ry, xRotate, large ? 1 : 0, sweepClockwise ? 1 : 0, x, y);
+            };
+            PathContext.prototype.close = function () {
+                return this.op("z");
+            };
+            PathContext.prototype.toAttribute = function () {
+                return this.ops.map(function (op) { return op.op + " " + op.args.join(" "); }).join(" ");
+            };
+            PathContext.prototype.op = function (op) {
+                var args = [];
+                for (var _i = 1; _i < arguments.length; _i++) {
+                    args[_i - 1] = arguments[_i];
+                }
+                this.ops.push({
+                    op: op,
+                    args: args
+                });
+                return this;
+            };
+            return PathContext;
+        }());
+        svgUtil.PathContext = PathContext;
+        function lengthWithUnits(value, unit) {
+            switch (unit) {
+                case LengthUnit.em: return value + "em";
+                case LengthUnit.ex: return value + "ex";
+                case LengthUnit.px: return value + "px";
+                case LengthUnit.in: return value + "in";
+                case LengthUnit.cm: return value + "cm";
+                case LengthUnit.mm: return value + "mm";
+                case LengthUnit.pt: return value + "pt";
+                case LengthUnit.pc: return value + "pc";
+                case LengthUnit.percent: return value + "%";
+                default: return value.toString();
+            }
+        }
+        function addClass(el, cls) {
+            if (el.classList)
+                el.classList.add(cls);
+            else if (el.className.baseVal.indexOf(cls) < 0)
+                el.className.baseVal += ' ' + cls;
+        }
+        function removeClass(el, cls) {
+            if (el.classList)
+                el.classList.remove(cls);
+            else
+                el.className.baseVal = el.className.baseVal.replace(cls, '').replace(/\s{2,}/, ' ');
+        }
+    })(svgUtil = pxt.svgUtil || (pxt.svgUtil = {}));
+})(pxt || (pxt = {}));
+(function (pxt) {
+    var svgUtil;
+    (function (svgUtil) {
+        var events;
+        (function (events) {
+            function isTouchEnabled() {
+                return typeof window !== "undefined" &&
+                    ('ontouchstart' in window // works on most browsers
+                        || (navigator && navigator.maxTouchPoints > 0)); // works on IE10/11 and Surface);
+            }
+            events.isTouchEnabled = isTouchEnabled;
+            function hasPointerEvents() {
+                return typeof window != "undefined" && !!window.PointerEvent;
+            }
+            events.hasPointerEvents = hasPointerEvents;
+            function down(el, handler) {
+                if (hasPointerEvents()) {
+                    el.addEventListener("pointerdown", handler);
+                }
+                else if (isTouchEnabled()) {
+                    el.addEventListener("mousedown", handler);
+                    el.addEventListener("touchstart", handler);
+                }
+                else {
+                    el.addEventListener("mousedown", handler);
+                }
+            }
+            events.down = down;
+            function up(el, handler) {
+                if (hasPointerEvents()) {
+                    el.addEventListener("pointerup", handler);
+                }
+                else if (isTouchEnabled()) {
+                    el.addEventListener("mouseup", handler);
+                }
+                else {
+                    el.addEventListener("mouseup", handler);
+                }
+            }
+            events.up = up;
+            function enter(el, handler) {
+                if (hasPointerEvents()) {
+                    el.addEventListener("pointerover", function (e) {
+                        handler(!!(e.buttons & 1));
+                    });
+                }
+                else if (isTouchEnabled()) {
+                    el.addEventListener("touchstart", function (e) {
+                        handler(true);
+                    });
+                }
+                else {
+                    el.addEventListener("mouseover", function (e) {
+                        handler(!!(e.buttons & 1));
+                    });
+                }
+            }
+            events.enter = enter;
+            function leave(el, handler) {
+                if (hasPointerEvents()) {
+                    el.addEventListener("pointerleave", handler);
+                }
+                else if (isTouchEnabled()) {
+                    el.addEventListener("touchend", handler);
+                }
+                else {
+                    el.addEventListener("mouseleave", handler);
+                }
+            }
+            events.leave = leave;
+            function move(el, handler) {
+                if (hasPointerEvents()) {
+                    el.addEventListener("pointermove", handler);
+                }
+                else if (isTouchEnabled()) {
+                    el.addEventListener("touchmove", handler);
+                }
+                else {
+                    el.addEventListener("mousemove", handler);
+                }
+            }
+            events.move = move;
+            function click(el, handler) {
+                el.addEventListener("click", handler);
+            }
+            events.click = click;
+        })(events = svgUtil.events || (svgUtil.events = {}));
+    })(svgUtil = pxt.svgUtil || (pxt.svgUtil = {}));
+})(pxt || (pxt = {}));
+(function (pxt) {
+    var svgUtil;
+    (function (svgUtil) {
+        var helpers;
+        (function (helpers) {
+            var CenteredText = /** @class */ (function (_super) {
+                __extends(CenteredText, _super);
+                function CenteredText() {
+                    return _super !== null && _super.apply(this, arguments) || this;
+                }
+                CenteredText.prototype.at = function (cx, cy) {
+                    this.cx = cx;
+                    this.cy = cy;
+                    this.rePosition();
+                    return this;
+                };
+                CenteredText.prototype.text = function (text, fontSizePixels) {
+                    if (fontSizePixels === void 0) { fontSizePixels = 12; }
+                    _super.prototype.text.call(this, text);
+                    this.fontSizePixels = fontSizePixels;
+                    this.setAttribute("font-size", fontSizePixels + "px");
+                    this.rePosition();
+                    return this;
+                };
+                CenteredText.prototype.rePosition = function () {
+                    if (this.cx == undefined || this.cy == undefined || this.fontSizePixels == undefined) {
+                        return;
+                    }
+                    this.setAttribute("x", this.cx);
+                    this.setAttribute("y", this.cy);
+                    this.setAttribute("text-anchor", "middle");
+                    this.setAttribute("alignment-baseline", "middle");
+                };
+                return CenteredText;
+            }(svgUtil.Text));
+            helpers.CenteredText = CenteredText;
+        })(helpers = svgUtil.helpers || (svgUtil.helpers = {}));
+    })(svgUtil = pxt.svgUtil || (pxt.svgUtil = {}));
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
+    var toolbox;
+    (function (toolbox) {
+        toolbox.blockColors = {
+            loops: '#107c10',
+            logic: '#006970',
+            math: '#712672',
+            images: '#5C2D91',
+            variables: '#A80000',
+            functions: '#005a9e',
+            text: '#996600',
+            arrays: '#A94400',
+            advanced: '#3c3c3c',
+            addpackage: '#717171',
+            search: '#000',
+            debug: '#e03030',
+            default: '#dddddd'
+        };
+        toolbox.blockIcons = {
+            loops: '\uf01e',
+            logic: '\uf074',
+            math: '\uf1ec',
+            variables: '\uf039',
+            functions: '\uf109',
+            text: '\uf035',
+            arrays: '\uf0cb',
+            advancedcollapsed: '\uf078',
+            advancedexpanded: '\uf077',
+            more: '\uf141',
+            addpackage: '\uf055',
+            search: '\uf002',
+            debug: '\uf111',
+            default: '\uf12e'
+        };
+        var toolboxStyle;
+        var toolboxStyleBuffer = '';
+        function appendToolboxIconCss(className, i) {
+            if (toolboxStyleBuffer.indexOf(className) > -1)
+                return;
+            if (i.length === 1) {
+                var icon = pxt.Util.unicodeToChar(i);
+                toolboxStyleBuffer += "\n                .blocklyTreeIcon." + className + "::before {\n                    content: \"" + icon + "\";\n                }\n            ";
+            }
+            else {
+                toolboxStyleBuffer += "\n                .blocklyTreeIcon." + className + " {\n                    background-image: url(\"" + pxt.Util.pathJoin(pxt.webConfig.commitCdnUrl, encodeURI(i)) + "\")!important;\n                    width: 30px;\n                    height: 100%;\n                    background-size: 20px !important;\n                    background-repeat: no-repeat !important;\n                    background-position: 50% 50% !important;\n                }\n            ";
+            }
+        }
+        toolbox.appendToolboxIconCss = appendToolboxIconCss;
+        function getNamespaceColor(ns) {
+            if (pxt.appTarget.appTheme.blockColors && pxt.appTarget.appTheme.blockColors[ns])
+                return pxt.appTarget.appTheme.blockColors[ns];
+            if (pxt.toolbox.blockColors[ns])
+                return pxt.toolbox.blockColors[ns];
+            return "";
+        }
+        toolbox.getNamespaceColor = getNamespaceColor;
+        function getNamespaceIcon(ns) {
+            if (pxt.appTarget.appTheme.blockIcons && pxt.appTarget.appTheme.blockIcons[ns]) {
+                return pxt.appTarget.appTheme.blockIcons[ns];
+            }
+            if (pxt.toolbox.blockIcons[ns]) {
+                return pxt.toolbox.blockIcons[ns];
+            }
+            return "";
+        }
+        toolbox.getNamespaceIcon = getNamespaceIcon;
+        function advancedTitle() { return pxt.Util.lf("{id:category}Advanced"); }
+        toolbox.advancedTitle = advancedTitle;
+        function addPackageTitle() { return pxt.Util.lf("{id:category}Extensions"); }
+        toolbox.addPackageTitle = addPackageTitle;
+        /**
+         * Convert blockly hue to rgb
+         */
+        function convertColor(colour) {
+            var hue = parseInt(colour);
+            if (!isNaN(hue)) {
+                console.error('hue style color not supported anymore, use #rrggbb');
+            }
+            // TODO: HSV support
+            return colour;
+        }
+        toolbox.convertColor = convertColor;
+        function fadeColor(hex, luminosity, lighten) {
+            // #ABC => ABC
+            hex = hex.replace(/[^0-9a-f]/gi, '');
+            // ABC => AABBCC
+            if (hex.length < 6)
+                hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+            // tweak
+            var rgb = "#";
+            for (var i = 0; i < 3; i++) {
+                var c = parseInt(hex.substr(i * 2, 2), 16);
+                c = Math.round(Math.min(Math.max(0, lighten ? c + (c * luminosity) : c - (c * luminosity)), 255));
+                var cStr = c.toString(16);
+                rgb += ("00" + cStr).substr(cStr.length);
+            }
+            return rgb;
+        }
+        toolbox.fadeColor = fadeColor;
+    })(toolbox = pxt.toolbox || (pxt.toolbox = {}));
+})(pxt || (pxt = {}));
+var pxt;
+(function (pxt) {
+    var tutorial;
+    (function (tutorial) {
+        function parseTutorialSteps(tutorialId, tutorialmd) {
+            // Download tutorial markdown
+            var steps = tutorialmd.split(/^##[^#].*$/gmi);
+            var newAuthoring = true;
+            if (steps.length <= 1) {
+                // try again, using old logic.
+                steps = tutorialmd.split(/^###[^#].*$/gmi);
+                newAuthoring = false;
+            }
+            if (steps[0].indexOf("# Not found") == 0) {
+                pxt.log("Tutorial not found: " + tutorialId);
+                throw new Error("Tutorial not found: " + tutorialId);
+            }
+            var stepInfo = [];
+            tutorialmd.replace(newAuthoring ? /^##[^#](.*)$/gmi : /^###[^#](.*)$/gmi, function (f, s) {
+                var info = {
+                    fullscreen: /@(fullscreen|unplugged)/.test(s),
+                    unplugged: /@unplugged/.test(s)
+                };
+                stepInfo.push(info);
+                return "";
+            });
+            if (steps.length < 1)
+                return undefined; // Promise.resolve();
+            var options = steps[0];
+            steps = steps.slice(1, steps.length); // Remove tutorial title
+            for (var i = 0; i < steps.length; i++) {
+                var stepContent = steps[i].trim();
+                var contentLines = stepContent.split('\n');
+                stepInfo[i].headerContentMd = contentLines[0];
+                stepInfo[i].contentMd = stepContent;
+                stepInfo[i].hasHint = contentLines.length > 1;
+            }
+            return stepInfo;
+        }
+        tutorial.parseTutorialSteps = parseTutorialSteps;
+        function bundleTutorialCode(tutorialmd) {
+            tutorialmd = tutorialmd.replace(/((?!.)\s)+/g, "\n");
+            var regex = /```(sim|block|blocks|filterblocks)\s*\n([\s\S]*?)\n```/gmi;
+            var code = '';
+            // Concatenate all blocks in separate code blocks and decompile so we can detect what blocks are used (for the toolbox)
+            tutorialmd.replace(regex, function (m0, m1, m2) {
+                code += "\n { \n " + m2 + "\n } \n";
+                return "";
+            });
+            return code;
+        }
+        tutorial.bundleTutorialCode = bundleTutorialCode;
+    })(tutorial = pxt.tutorial || (pxt.tutorial = {}));
 })(pxt || (pxt = {}));
 /// <reference path='../built/typescriptServices.d.ts' />
 var ts;
@@ -8747,6 +10405,7 @@ var pxt;
         worker_1.makeWebSocket = makeWebSocket;
     })(worker = pxt.worker || (pxt.worker = {}));
 })(pxt || (pxt = {}));
+/* tslint:disable:no-conditional-assignment */
 // TODO: add a macro facility to make 8-bit assembly easier?
 var ts;
 (function (ts) {
@@ -8754,6 +10413,7 @@ var ts;
     (function (pxtc) {
         var assembler;
         (function (assembler) {
+            assembler.debug = false;
             function lf(fmt) {
                 var args = [];
                 for (var _i = 1; _i < arguments.length; _i++) {
@@ -8967,6 +10627,7 @@ var ts;
                     this.labels = {};
                     this.stackpointers = {};
                     this.stack = 0;
+                    this.commPtr = 0;
                     this.peepOps = 0;
                     this.peepDel = 0;
                     this.peepCounts = {};
@@ -9298,6 +10959,15 @@ var ts;
                             else
                                 this.directiveError(lf("expecting number"));
                             break;
+                        case ".p2align":
+                            expectOne();
+                            num0 = this.parseOneInt(words[1]);
+                            if (num0 != null) {
+                                this.align(1 << num0);
+                            }
+                            else
+                                this.directiveError(lf("expecting number"));
+                            break;
                         case ".byte":
                             this.emitBytes(words);
                             break;
@@ -9317,6 +10987,7 @@ var ts;
                             break;
                         case ".word":
                         case ".4bytes":
+                        case ".long":
                             // TODO: a word is machine-dependent (16-bit for AVR, 32-bit for ARM)
                             this.parseNumbers(words).forEach(function (n) {
                                 // we allow negative numbers
@@ -9351,15 +11022,18 @@ var ts;
                             this.stackpointers[words[1]] = this.stack;
                             break;
                         case "@stackempty":
-                            if (this.stackpointers[words[1]] == null)
-                                this.directiveError(lf("no such saved stack"));
-                            else if (this.stackpointers[words[1]] != this.stack)
-                                this.directiveError(lf("stack mismatch"));
+                            if (this.checkStack) {
+                                if (this.stackpointers[words[1]] == null)
+                                    this.directiveError(lf("no such saved stack"));
+                                else if (this.stackpointers[words[1]] != this.stack)
+                                    this.directiveError(lf("stack mismatch"));
+                            }
                             break;
                         case "@scope":
                             this.scope = words[1] || "";
                             this.currLineNo = this.scope ? 0 : this.realCurrLineNo;
                             break;
+                        case ".syntax":
                         case "@nostackcheck":
                             this.checkStack = false;
                             break;
@@ -9373,6 +11047,29 @@ var ts;
                             this.stack = 0;
                             this.scope = "$S" + this.scopeId++;
                             break;
+                        case ".comm": {
+                            words = words.filter(function (x) { return x != ","; });
+                            words.shift();
+                            var sz = this.parseOneInt(words[1]);
+                            var align = 0;
+                            if (words[2])
+                                align = this.parseOneInt(words[2]);
+                            else
+                                align = 4; // not quite what AS does...
+                            var val = this.lookupLabel(words[0]);
+                            if (val == null) {
+                                if (!this.commPtr) {
+                                    this.commPtr = this.lookupExternalLabel("_pxt_comm_base") || 0;
+                                    if (!this.commPtr)
+                                        this.directiveError(lf("PXT_COMM_BASE not defined"));
+                                }
+                                while (this.commPtr & (align - 1))
+                                    this.commPtr++;
+                                this.labels[this.scopedName(words[0])] = this.commPtr - this.baseOffset;
+                                this.commPtr += sz;
+                            }
+                            break;
+                        }
                         case ".file":
                         case ".text":
                         case ".cpu":
@@ -9381,6 +11078,13 @@ var ts;
                         case ".code":
                         case ".thumb_func":
                         case ".type":
+                        case ".fnstart":
+                        case ".save":
+                        case ".size":
+                        case ".fnend":
+                        case ".pad":
+                        case ".globl": // TODO might need this one
+                        case ".local":
                             break;
                         case "@":
                             // @ sp needed
@@ -9587,7 +11291,7 @@ var ts;
                             if (!text.trim())
                                 return;
                         }
-                        if (_this.location() == _this.buf.length)
+                        if (assembler.debug)
                             if (ln.type == "label" || ln.type == "instruction")
                                 text += " \t; 0x" + (ln.location + _this.baseOffset).toString(16);
                         res += text + "\n";
@@ -9610,6 +11314,10 @@ var ts;
                         }
                     }
                 };
+                File.prototype.clearLabels = function () {
+                    this.labels = {};
+                    this.commPtr = 0;
+                };
                 File.prototype.peepPass = function (reallyFinal) {
                     if (this.disablePeepHole)
                         return;
@@ -9619,7 +11327,7 @@ var ts;
                     this.peepHole();
                     this.throwOnError = true;
                     this.finalEmit = false;
-                    this.labels = {};
+                    this.clearLabels();
                     this.iterLines();
                     pxtc.assert(!this.checkStack || this.stack == 0);
                     this.finalEmit = true;
@@ -9638,7 +11346,7 @@ var ts;
                     this.prepLines(text);
                     if (this.errors.length > 0)
                         return;
-                    this.labels = {};
+                    this.clearLabels();
                     this.iterLines();
                     if (this.checkStack && this.stack != 0)
                         this.directiveError(lf("stack misaligned at the end of the file"));
@@ -9646,7 +11354,7 @@ var ts;
                         return;
                     this.ei.expandLdlit(this);
                     this.ei.commonalize(this);
-                    this.labels = {};
+                    this.clearLabels();
                     this.iterLines();
                     this.finalEmit = true;
                     this.reallyFinalEmit = this.disablePeepHole;
@@ -9945,8 +11653,18 @@ var pxt;
             }
         }
         Cloud.isLocalHost = isLocalHost;
+        function localRequestAsync(path, data) {
+            return pxt.U.requestAsync({
+                url: "/api/" + path,
+                headers: { "Authorization": Cloud.localToken },
+                method: data ? "POST" : "GET",
+                data: data || undefined,
+                allowHttpErrors: true
+            });
+        }
+        Cloud.localRequestAsync = localRequestAsync;
         function privateRequestAsync(options) {
-            options.url = pxt.webConfig && pxt.webConfig.isStatic ? pxt.webConfig.relprefix + options.url : Cloud.apiRoot + options.url;
+            options.url = pxt.webConfig && pxt.webConfig.isStatic && !options.forceLiveEndpoint ? pxt.webConfig.relprefix + options.url : Cloud.apiRoot + options.url;
             options.allowGzipPost = true;
             if (!Cloud.isOnline()) {
                 return offlineError(options.url);
@@ -9975,48 +11693,53 @@ var pxt;
             return privateRequestAsync({ url: path }).then(function (resp) { return resp.text; });
         }
         Cloud.privateGetTextAsync = privateGetTextAsync;
-        function privateGetAsync(path) {
-            return privateRequestAsync({ url: path }).then(function (resp) { return resp.json; });
+        function privateGetAsync(path, forceLiveEndpoint) {
+            if (forceLiveEndpoint === void 0) { forceLiveEndpoint = false; }
+            return privateRequestAsync({ url: path, forceLiveEndpoint: forceLiveEndpoint }).then(function (resp) { return resp.json; });
         }
         Cloud.privateGetAsync = privateGetAsync;
         function downloadTargetConfigAsync() {
             if (!Cloud.isOnline())
                 return Promise.resolve(undefined);
-            var url = pxt.webConfig && pxt.webConfig.isStatic ? "targetconfig.json" : "config/" + pxt.appTarget.id + "/targetconfig";
+            var targetVersion = pxt.appTarget.versions && pxt.appTarget.versions.target;
+            var url = pxt.webConfig && pxt.webConfig.isStatic ? "targetconfig.json" : "config/" + pxt.appTarget.id + "/targetconfig" + (targetVersion ? "/v" + targetVersion : '');
             if (Cloud.isLocalHost())
-                return Util.requestAsync({
-                    url: "/api/" + url,
-                    headers: { "Authorization": Cloud.localToken },
-                    method: "GET",
-                    allowHttpErrors: true
-                }).then(function (resp) { return resp.json; });
+                return localRequestAsync(url).then(function (r) { return r ? r.json : undefined; });
             else
                 return Cloud.privateGetAsync(url);
         }
         Cloud.downloadTargetConfigAsync = downloadTargetConfigAsync;
         function downloadScriptFilesAsync(id) {
-            return privateRequestAsync({ url: id + "/text" }).then(function (resp) {
+            return privateRequestAsync({ url: id + "/text", forceLiveEndpoint: true }).then(function (resp) {
                 return JSON.parse(resp.text);
             });
         }
         Cloud.downloadScriptFilesAsync = downloadScriptFilesAsync;
         function downloadMarkdownAsync(docid, locale, live) {
             var packaged = pxt.webConfig && pxt.webConfig.isStatic;
-            var url = packaged
-                ? "docs/" + docid + ".md"
-                : "md/" + pxt.appTarget.id + "/" + docid.replace(/^\//, "") + "?targetVersion=" + encodeURIComponent(pxt.webConfig.targetVersion);
+            var targetVersion = pxt.appTarget.versions && pxt.appTarget.versions.target || '?';
+            var url;
+            if (packaged) {
+                url = docid;
+                var isUnderDocs = /\/docs\//.test(url);
+                var hasExt = /\.\w+$/.test(url);
+                if (!isUnderDocs) {
+                    url = "docs/" + url;
+                }
+                if (!hasExt) {
+                    url = url + ".md";
+                }
+            }
+            else {
+                url = "md/" + pxt.appTarget.id + "/" + docid.replace(/^\//, "") + "?targetVersion=" + encodeURIComponent(targetVersion);
+            }
             if (!packaged && locale != "en") {
                 url += "&lang=" + encodeURIComponent(Util.userLanguage());
                 if (live)
                     url += "&live=1";
             }
             if (Cloud.isLocalHost() && !live)
-                return Util.requestAsync({
-                    url: "/api/" + url,
-                    headers: { "Authorization": Cloud.localToken },
-                    method: "GET",
-                    allowHttpErrors: true
-                }).then(function (resp) {
+                return localRequestAsync(url).then(function (resp) {
                     if (resp.statusCode == 404)
                         return privateGetTextAsync(url);
                     else
@@ -10030,8 +11753,9 @@ var pxt;
             return privateRequestAsync({ url: path, method: "DELETE" }).then(function (resp) { return resp.json; });
         }
         Cloud.privateDeleteAsync = privateDeleteAsync;
-        function privatePostAsync(path, data) {
-            return privateRequestAsync({ url: path, data: data || {} }).then(function (resp) { return resp.json; });
+        function privatePostAsync(path, data, forceLiveEndpoint) {
+            if (forceLiveEndpoint === void 0) { forceLiveEndpoint = false; }
+            return privateRequestAsync({ url: path, data: data || {}, forceLiveEndpoint: forceLiveEndpoint }).then(function (resp) { return resp.json; });
         }
         Cloud.privatePostAsync = privatePostAsync;
         function isLoggedIn() { return !!Cloud.accessToken; }
