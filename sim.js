@@ -556,6 +556,8 @@ var pxsim;
     var CP2102Serial = /** @class */ (function () {
         function CP2102Serial(device) {
             this.device = device;
+            this._buffer = '';
+            this._awaiting = null;
             this.consoleBuffer = '';
         }
         ;
@@ -593,6 +595,7 @@ var pxsim;
                             return [4 /*yield*/, this.setLINE(0x800)];
                         case 7:
                             _a.sent();
+                            this.readDataToBuffer();
                             return [2 /*return*/];
                     }
                 });
@@ -809,14 +812,46 @@ var pxsim;
                 });
             });
         };
-        CP2102Serial.prototype.waitForPrompt = function () {
+        CP2102Serial.prototype.readDataToBuffer = function () {
             return __awaiter(this, void 0, void 0, function () {
-                var resp;
+                var data;
                 return __generator(this, function (_a) {
                     switch (_a.label) {
                         case 0:
                             if (!true) return [3 /*break*/, 2];
                             return [4 /*yield*/, this.readData()];
+                        case 1:
+                            data = _a.sent();
+                            this._buffer += data;
+                            if (this._awaiting) {
+                                this._awaiting(this._buffer);
+                                this._awaiting = null;
+                                this._buffer = '';
+                            }
+                            return [3 /*break*/, 0];
+                        case 2: return [2 /*return*/];
+                    }
+                });
+            });
+        };
+        CP2102Serial.prototype.waitForPrompt = function () {
+            return __awaiter(this, void 0, void 0, function () {
+                var _this = this;
+                var resp;
+                return __generator(this, function (_a) {
+                    switch (_a.label) {
+                        case 0:
+                            if (!true) return [3 /*break*/, 2];
+                            return [4 /*yield*/, new Promise(function (resolve) {
+                                    if (_this._buffer.length) {
+                                        var data = _this._buffer;
+                                        _this._buffer = '';
+                                        resolve(data);
+                                    }
+                                    else {
+                                        _this._awaiting = resolve;
+                                    }
+                                })];
                         case 1:
                             resp = _a.sent();
                             if (resp[resp.length - 1] == '>')
@@ -829,6 +864,7 @@ var pxsim;
         };
         CP2102Serial.prototype.waitForResetDone = function () {
             return __awaiter(this, void 0, void 0, function () {
+                var _this = this;
                 var resp, _a;
                 return __generator(this, function (_b) {
                     switch (_b.label) {
@@ -838,7 +874,16 @@ var pxsim;
                         case 1:
                             if (!true) return [3 /*break*/, 3];
                             _a = resp;
-                            return [4 /*yield*/, this.readData()];
+                            return [4 /*yield*/, new Promise(function (resolve) {
+                                    if (_this._buffer.length) {
+                                        var data = _this._buffer;
+                                        _this._buffer = '';
+                                        resolve(data);
+                                    }
+                                    else {
+                                        _this._awaiting = resolve;
+                                    }
+                                })];
                         case 2:
                             resp = _a + _b.sent();
                             if (resp[resp.length - 1] != '>')
